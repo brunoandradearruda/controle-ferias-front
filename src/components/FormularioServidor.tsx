@@ -10,6 +10,19 @@ const servidorSchema = z.object({
   lotacao: z.string().min(1, "A lotação é obrigatória"),
 });
 
+
+const SETORES_SEPLAG = [
+  "Comitê Gestor do Gasto Público",
+  "Chefia de Gabinete",
+  "Parceria Público Privada",
+  "Recursos Humanos (RH)",
+  "Tecnologia da Informação (TI)",
+  "Gabinete do Secretário",
+  "Assessoria Jurídica",
+  "DIREGE"
+];
+
+
 type ServidorData = z.infer<typeof servidorSchema>;
 
 export function FormularioServidor() {
@@ -69,14 +82,20 @@ export function FormularioServidor() {
         </div>
 
         {/* Lotação */}
+       {/* Lotação */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Setor/Lotação</label>
-          <input 
-            type="text" 
-            placeholder="Ex: SEPLAG - TI"
+          <select 
             {...register('lotacao')}
-            className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
-          />
+            className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+          >
+            <option value="">Selecione um setor da lista...</option>
+            {SETORES_SEPLAG.map((nomeDoSetor) => (
+              <option key={nomeDoSetor} value={nomeDoSetor}>
+                {nomeDoSetor}
+              </option>
+            ))}
+          </select>
           {errors.lotacao && <span className="text-red-500 text-sm">{errors.lotacao.message}</span>}
         </div>
 
