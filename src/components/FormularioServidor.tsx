@@ -8,6 +8,7 @@ const servidorSchema = z.object({
   nome: z.string().min(3, "O nome deve ter no mínimo 3 letras"),
   cargo: z.string().min(1, "O cargo é obrigatório"),
   lotacao: z.string().min(1, "A lotação é obrigatória"),
+  // Removemos o 'ativo' daqui, pois ele não é um campo da tela
 });
 
 
@@ -30,9 +31,13 @@ export function FormularioServidor() {
     resolver: zodResolver(servidorSchema),
   });
 
-  const salvarServidor = async (data: ServidorData) => {
+ const salvarServidor = async (data: ServidorData) => {
     try {
-      await api.post('/servidores', data);
+      // O data tem os dados da tela. Nós criamos um objeto novo juntando a tela com o ativo: true
+      const dadosParaEnvio = { ...data, ativo: true }; 
+      
+      await api.post('/servidores', dadosParaEnvio);
+      
       alert('✅ Servidor cadastrado com sucesso! (Período aquisitivo de 30 dias gerado).');
       reset();
     } catch (error) {
