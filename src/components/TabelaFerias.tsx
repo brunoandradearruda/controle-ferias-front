@@ -16,6 +16,7 @@ interface Solicitacao {
   numeroPbdoc: string;
   lotacao: string;
   matricula: string;
+  anoReferencia: number;
 }
 
 export function TabelaFerias() {
@@ -195,7 +196,7 @@ export function TabelaFerias() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 
-                {/* ---> ATENÇÃO: Agora renderizamos os 'itensAtuais' fatiados e não mais todos <--- */}
+               {/* ---> ATENÇÃO: Agora renderizamos os 'itensAtuais' fatiados e não mais todos <--- */}
                 {itensAtuais.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition">
                     <td className="px-4 py-4 whitespace-nowrap">
@@ -204,7 +205,16 @@ export function TabelaFerias() {
                       <div className="text-xs font-semibold text-indigo-600 mt-0.5">{item.lotacao || 'Lotação não informada'}</div>
                       <div className="text-xs font-mono text-gray-400 mt-0.5">PBDOC: {item.numeroPbdoc || '-'}</div>
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-600">{item.diasSolicitados}</td>
+                    
+                    {/* ---> AQUI ESTÁ A MUDANÇA: Substituímos o td simples pelo bloco com a Etiqueta de Ano <--- */}
+                    <td className="px-4 py-4 whitespace-nowrap text-center">
+                      <div className="text-sm font-bold text-gray-700">{item.diasSolicitados} dias</div>
+                      <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                        Ref: {item.anoReferencia || 'N/A'}
+                      </div>
+                    </td>
+                    {/* ----------------------------------------------------------------------------------------- */}
+
                     <td className="px-4 py-4 whitespace-nowrap text-center text-sm font-medium text-blue-700">{calcularDataExata(item.dataInicioGozo, 0)}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-center text-sm font-medium text-red-600">{calcularDataExata(item.dataInicioGozo, item.diasSolicitados - 1)}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-center text-sm font-bold text-green-700 bg-green-50/30">{calcularDataExata(item.dataInicioGozo, item.diasSolicitados)}</td>
