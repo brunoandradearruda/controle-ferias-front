@@ -1,4 +1,5 @@
 import { useForm } from 'react-hook-form';
+import type { SubmitHandler } from 'react-hook-form'; 
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '../services/api';
@@ -8,9 +9,8 @@ const servidorSchema = z.object({
   nome: z.string().min(3, "O nome deve ter no mínimo 3 letras"),
   cargo: z.string().min(1, "O cargo é obrigatório"),
   lotacao: z.string().min(1, "A lotação é obrigatória"),
-  // Removemos o 'ativo' daqui, pois ele não é um campo da tela
+  dataAdmissao: z.string().min(1, "A data de admissão é obrigatória")
 });
-
 
 const SETORES_SEPLAG = [
   "Comitê Gestor do Gasto Público",
@@ -23,7 +23,6 @@ const SETORES_SEPLAG = [
   "DIREGE"
 ];
 
-
 type ServidorData = z.infer<typeof servidorSchema>;
 
 export function FormularioServidor() {
@@ -31,14 +30,13 @@ export function FormularioServidor() {
     resolver: zodResolver(servidorSchema),
   });
 
- const salvarServidor = async (data: ServidorData) => {
+  const salvarServidor: SubmitHandler<ServidorData> = async (data) => {
     try {
-      // O data tem os dados da tela. Nós criamos um objeto novo juntando a tela com o ativo: true
       const dadosParaEnvio = { ...data, ativo: true }; 
       
       await api.post('/servidores', dadosParaEnvio);
       
-      alert('✅ Servidor cadastrado com sucesso! (Período aquisitivo de 30 dias gerado).');
+      alert('✅ Servidor cadastrado com sucesso! (Período aquisitivo gerado com base na admissão).');
       reset();
     } catch (error) {
       alert('❌ Erro ao cadastrar o servidor.');
@@ -68,10 +66,22 @@ export function FormularioServidor() {
           <label className="block text-sm font-medium text-gray-700">Nome Completo</label>
           <input 
             type="text" 
+            placeholder="Ex: Bruno Silva"
             {...register('nome')}
             className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
           />
           {errors.nome && <span className="text-red-500 text-sm">{errors.nome.message}</span>}
+        </div>
+
+        {/* Data de Admissão */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Data de Admissão (Posse)</label>
+          <input 
+            type="date" 
+            {...register('dataAdmissao')}
+            className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+          />
+          {errors.dataAdmissao && <span className="text-red-500 text-sm">{errors.dataAdmissao.message}</span>}
         </div>
 
         {/* Cargo */}
@@ -87,7 +97,6 @@ export function FormularioServidor() {
         </div>
 
         {/* Lotação */}
-       {/* Lotação */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Setor/Lotação</label>
           <select 

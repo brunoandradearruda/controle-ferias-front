@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { CalendarPlus, Send, Calculator, Info } from 'lucide-react';
 
 const formSchema = z.object({
-  periodoId: z.number({ message: "Selecione um servidor" }).min(1, "Selecione um servidor"),
+  periodoId: z.number({ message: "Selecione um período aquisitivo" }).min(1, "Selecione um período aquisitivo"),
   dataInicioGozo: z.string()
     .min(1, "A data de início é obrigatória")
     .refine((dataStr) => {
@@ -22,8 +22,11 @@ type FormularioData = z.infer<typeof formSchema>;
 
 export function FormularioFerias() {
   const [periodos, setPeriodos] = useState<any[]>([]);
+  
+  // ---> NOVO: Estado para armazenar qual Servidor o RH selecionou no 1º dropdown
+  const [servidorSelecionadoId, setServidorSelecionadoId] = useState<number | ''>('');
 
-  const { register, handleSubmit, watch, formState: { errors }, reset } = useForm<FormularioData>({
+  const { register, handleSubmit, watch, formState: { errors }, reset, setValue } = useForm<FormularioData>({
     resolver: zodResolver(formSchema),
   });
 
@@ -40,6 +43,23 @@ export function FormularioFerias() {
       .then(response => setPeriodos(response.data))
       .catch(error => console.error("Erro ao buscar períodos:", error));
   }, []);
+
+  // ========================================================================
+  // ---> LÓGICA DOS DOIS DROPDOWNS <---
+  // ========================================================================
+  // 1. Pegamos apenas os períodos que têm saldo (> 0)
+  const periodosComSaldo = periodos.filter((p) => p.saldoDias > 0);
+
+  // 2. Extraímos os servidores únicos para o 1º Dropdown
+  const servidoresUnicos = Array.from(
+    new Map(periodosComSaldo.map((p) => [p.servidor?.id, p.servidor])).values()
+  );
+
+  // 3. Filtramos os períodos de acordo com o servidor escolhido para o 2º Dropdown
+  const periodosDoServidor = periodosComSaldo.filter(
+    (p) => p.servidor?.id === servidorSelecionadoId
+  );
+  // ========================================================================
 
   // Lógica Matemática da Previsão
   const calcularDataExata = (dataString: string, diasSomar: number = 0) => {
@@ -62,17 +82,17 @@ export function FormularioFerias() {
     }
 
     try {
-      // O React apenas envia os dados no escuro. Se houver choque de datas,
-      // o Java vai gritar e jogar a requisição direto para o bloco "catch" abaixo.
       await api.post(`/periodos/${data.periodoId}/solicitacoes`, {
         ...data,
         abonoPecuniario: false 
       });
       alert('✅ Solicitação de férias enviada com sucesso!');
+      
+      // Limpa o formulário e volta o dropdown de servidores pro estado inicial
       reset();
+      setServidorSelecionadoId('');
+      
     } catch (error: any) {
-      // Aqui nós capturamos exatamente a mensagem que o Java montou lá no service
-      // Ex: "Choque de datas: O servidor já possui férias registradas..."
       const mensagemErro = error.response?.data || error.response?.data?.message || 'Erro inesperado ao conectar com o servidor.';
       alert('❌ ' + JSON.stringify(mensagemErro).replace(/"/g, ''));
     }
@@ -86,21 +106,46 @@ export function FormularioFerias() {
       </h2>
 
       <form onSubmit={handleSubmit(salvarSolicitacao)} className="space-y-5">
+        
+        {/* ==================== 1º DROPDOWN: SELECIONAR SERVIDOR ==================== */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Servidor (Período Aquisitivo)</label>
-        <select 
-            {...register('periodoId', { valueAsNumber: true })}
+          <label className="block text-sm font-medium text-gray-700 mb-1">1. Selecione o Servidor</label>
+          <select 
+            value={servidorSelecionadoId}
+            onChange={(e) => {
+              setServidorSelecionadoId(Number(e.target.value));
+              // Limpa a seleção do período sempre que o RH trocar de servidor
+              setValue('periodoId', 0 as any); 
+            }}
             className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 outline-none transition"
           >
-            <option value="">-- Selecione um Servidor --</option>
-            {periodos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.servidor?.nome} (Mat: {p.servidor?.matricula || '-'}) {p.servidor?.operadorRaioX ? '☢️' : ''} (Saldo: {p.saldoDias}d) {p.alertaPrazo ? '🚨 VENCENDO' : ''}
+            <option value="">-- Busque e Selecione um Servidor --</option>
+            {servidoresUnicos.map((servidor) => (
+              <option key={servidor?.id} value={servidor?.id}>
+                {servidor?.nome} (Mat: {servidor?.matricula || '-'}) {servidor?.operadorRaioX ? '☢️' : ''}
               </option>
             ))}
           </select>
-          {errors.periodoId && <span className="text-red-500 text-sm mt-1">{errors.periodoId.message}</span>}
         </div>
+
+        {/* ==================== 2º DROPDOWN: SELECIONAR O PERÍODO ==================== */}
+        {servidorSelecionadoId !== '' && (
+          <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <label className="block text-sm font-medium text-gray-700 mb-1">2. Selecione o Período Aquisitivo</label>
+            <select 
+              {...register('periodoId', { valueAsNumber: true })}
+              className="w-full border border-green-300 rounded-lg p-2.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-green-50 outline-none transition"
+            >
+              <option value="">-- Selecione o Período --</option>
+              {periodosDoServidor.map((p) => (
+                <option key={p.id} value={p.id}>
+                  Ref: {p.anoReferencia} — (Saldo: {p.saldoDias} dias) {p.alertaPrazo ? '🚨 VENCENDO' : ''}
+                </option>
+              ))}
+            </select>
+            {errors.periodoId && <span className="text-red-500 text-sm mt-1">{errors.periodoId.message}</span>}
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Data de Início do Gozo</label>
