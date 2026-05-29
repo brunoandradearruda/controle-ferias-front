@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info } from 'lucide-react';
+import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info, FileText } from 'lucide-react';
+import { DossieServidor } from './DossieServidor'; // Ajuste o caminho se o DossieServidor estiver em outra pasta
 
 interface Servidor {
   id: number;
@@ -21,6 +22,10 @@ export function QuadroLotacao() {
   const [modalPassivoAberto, setModalPassivoAberto] = useState(false);
   const [servidorParaPassivo, setServidorParaPassivo] = useState<Servidor | null>(null);
   const [anoSelecionado, setAnoSelecionado] = useState<number | ''>('');
+
+  // ---> ESTADOS DO MODAL DE DOSSIÊ/HISTÓRICO <---
+  const [modalHistoricoAberto, setModalHistoricoAberto] = useState(false);
+  const [servidorParaHistorico, setServidorParaHistorico] = useState<Servidor | null>(null);
 
   const buscarServidores = async () => {
     try {
@@ -155,12 +160,11 @@ export function QuadroLotacao() {
               <table className="min-w-full table-fixed divide-y divide-gray-200">
                 <thead className="bg-white">
                   <tr>
-                    {/* Definindo a porcentagem exata para cada coluna (Soma = 100%) */}
                     <th className="w-[12%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Matrícula</th>
                     <th className="w-[30%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome do Servidor</th>
-                    <th className="w-[32%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cargo</th>
+                    <th className="w-[28%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cargo</th>
                     <th className="w-[10%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="w-[16%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                    <th className="w-[20%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-gray-50/30">
@@ -186,28 +190,43 @@ export function QuadroLotacao() {
                         )}
                       </td>
                       <td className="px-5 py-4 text-center">
-                        <div className="flex items-center justify-center gap-2.5">
+                        <div className="flex items-center justify-center gap-2">
+                          
+                          {/* BOTÃO DOSSIÊ - VISÍVEL PARA ATIVOS E INATIVOS */}
+                          <button 
+                            onClick={() => {
+                              setServidorParaHistorico(srv);
+                              setModalHistoricoAberto(true);
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-bold bg-slate-800 border border-slate-700 text-white hover:bg-slate-900 py-2 px-2.5 rounded-lg shadow-sm transition-all"
+                            title="Ver Dossiê Histórico Completo"
+                          >
+                            <FileText size={14} className="text-slate-300" />
+                            Dossiê
+                          </button>
+
                           {srv.ativo && (
                             <button 
                               onClick={() => abrirModalPassivo(srv)}
-                              className="flex items-center gap-1.5 text-xs font-bold bg-amber-100 border border-amber-200 text-amber-700 hover:bg-amber-200 py-2 px-3 rounded-lg shadow-sm transition-all"
+                              className="flex items-center gap-1.5 text-xs font-bold bg-amber-100 border border-amber-200 text-amber-700 hover:bg-amber-200 py-2 px-2.5 rounded-lg shadow-sm transition-all"
                               title="Adicionar saldo de férias de anos anteriores"
                             >
                               <History size={14} />
                               Passivo
                             </button>
                           )}
+                          
                           {srv.ativo ? (
                             <button 
                               onClick={() => inativar(srv.id, srv.nome)}
-                              className="text-xs font-bold bg-white border border-red-200 text-red-600 hover:bg-red-50 py-2 px-3.5 rounded-lg shadow-sm transition-all"
+                              className="text-xs font-bold bg-white border border-red-200 text-red-600 hover:bg-red-50 py-2 px-2.5 rounded-lg shadow-sm transition-all"
                             >
                               Desligar
                             </button>
                           ) : (
                             <button 
                               onClick={() => reativar(srv.id)}
-                              className="text-xs font-bold bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50 py-2 px-3.5 rounded-lg shadow-sm transition-all"
+                              className="text-xs font-bold bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50 py-2 px-2.5 rounded-lg shadow-sm transition-all"
                             >
                               Reativar
                             </button>
@@ -224,7 +243,7 @@ export function QuadroLotacao() {
       </div>
 
       {/* ===================================================================== */}
-      {/* MODAL DE ADIÇÃO DE FÉRIAS ATRASADAS (DESIGN PREMIUM)                  */}
+      {/* MODAL DE ADIÇÃO DE FÉRIAS ATRASADAS (PASSIVO)                         */}
       {/* ===================================================================== */}
       {modalPassivoAberto && servidorParaPassivo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -297,6 +316,22 @@ export function QuadroLotacao() {
           </div>
         </div>
       )}
+
+      {/* ===================================================================== */}
+      {/* MODAL DO DOSSIÊ CRONOLÓGICO                                           */}
+      {/* ===================================================================== */}
+      {modalHistoricoAberto && servidorParaHistorico && (
+        <DossieServidor
+          servidorId={servidorParaHistorico.id}
+          nomeServidor={servidorParaHistorico.nome}
+          matricula={servidorParaHistorico.matricula}
+          onClose={() => {
+            setModalHistoricoAberto(false);
+            setServidorParaHistorico(null);
+          }}
+        />
+      )}
+
     </div>
   );
 }
