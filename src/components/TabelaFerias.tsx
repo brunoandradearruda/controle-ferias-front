@@ -11,6 +11,7 @@ import autoTable from 'jspdf-autotable';
 
 interface Solicitacao {
   id: number;
+  modalidade: 'GOZO' | 'INDENIZACAO'; // <-- NOVO: Capturando a modalidade do Java
   dataInicioGozo: string;
   diasSolicitados: number;
   status: string;
@@ -49,7 +50,7 @@ export function TabelaFerias() {
 
   // Estados de controle para os acordeões expansíveis (Nível 1 e Nível 2)
   const [setoresExpandidos, setSetoresExpandidos] = useState<Record<string, boolean>>({});
-  const [servidoresExpandidos, setServidoresExpandidos] = useState<Record<string, boolean>>({}); // <-- NOVO
+  const [servidoresExpandidos, setServidoresExpandidos] = useState<Record<string, boolean>>({}); 
 
   const buscarHistoricoGeral = async () => {
     try {
@@ -112,7 +113,12 @@ export function TabelaFerias() {
     return dataCalculada.toISOString().split('T')[0]; 
   };
 
-  const renderStatus = (status: string, dataInicioStr: string, dataFimStr: string) => {
+  const renderStatus = (status: string, dataInicioStr: string, dataFimStr: string, modalidade: 'GOZO'|'INDENIZACAO') => {
+    // Se for pecúnia e estiver aprovada, a exibição é fixa
+    if (status === 'APROVADA' && modalidade === 'INDENIZACAO') {
+        return <span className="inline-flex justify-center items-center gap-1.5 px-3 py-1 w-28 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300 shadow-sm"><Check size={13} /> INDENIZADA</span>;
+    }
+
     if (status === 'APROVADA') {
       const hoje = new Date().toISOString().split('T')[0];
       if (dataInicioStr > hoje) {
@@ -138,10 +144,10 @@ export function TabelaFerias() {
                        (item.lotacao || '').toLowerCase().includes(termo);
     
     const hoje = new Date().toISOString().split('T')[0];
-    const dataFimFerias = getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1);
+    const dataFimFerias = item.modalidade === 'INDENIZACAO' ? '' : getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1);
 
     let passaAba = true;
-    if (filtroStatus === 'ATUAIS_FUTURAS') passaAba = item.status === 'APROVADA' && dataFimFerias >= hoje;
+    if (filtroStatus === 'ATUAIS_FUTURAS') passaAba = item.status === 'APROVADA' && (item.modalidade === 'INDENIZACAO' ? false : dataFimFerias >= hoje); // Pecúnias não aparecem em atuais/futuras
     if (filtroStatus === 'PENDENTES') passaAba = item.status === 'PENDENTE_CHEFIA';
     if (filtroStatus === 'HISTORICO') passaAba = true; 
 
@@ -150,11 +156,11 @@ export function TabelaFerias() {
     let passaStatusSecundario = true;
     if (filtroStatusSecundario) {
       if (filtroStatusSecundario === 'AGENDADA') {
-        passaStatusSecundario = item.status === 'APROVADA' && item.dataInicioGozo > hoje;
+        passaStatusSecundario = item.status === 'APROVADA' && item.modalidade === 'GOZO' && item.dataInicioGozo > hoje;
       } else if (filtroStatusSecundario === 'EM_GOZO') {
-        passaStatusSecundario = item.status === 'APROVADA' && item.dataInicioGozo <= hoje && dataFimFerias >= hoje;
+        passaStatusSecundario = item.status === 'APROVADA' && item.modalidade === 'GOZO' && item.dataInicioGozo <= hoje && dataFimFerias >= hoje;
       } else if (filtroStatusSecundario === 'CONCLUIDA') {
-        passaStatusSecundario = item.status === 'APROVADA' && dataFimFerias < hoje;
+        passaStatusSecundario = item.status === 'APROVADA' && (item.modalidade === 'INDENIZACAO' || dataFimFerias < hoje);
       } else {
         passaStatusSecundario = item.status === filtroStatusSecundario;
       }
@@ -208,7 +214,7 @@ export function TabelaFerias() {
 
       setores[setor][chaveServidor].periodos[ref].solicitacoes.push(item);
       
-      // Só soma no total acumulador se as férias de fato foram usufruídas/aprovadas
+      // Só soma no total acumulador se as férias de fato foram usufruídas/aprovadas (Seja gozo ou indenização)
       if (item.status === 'APROVADA' || item.status === 'INTERROMPIDA') {
         setores[setor][chaveServidor].periodos[ref].totalDiasGozados += item.diasSolicitados;
       }
@@ -257,25 +263,29 @@ export function TabelaFerias() {
         Object.values(srv.periodos).forEach(p => {
           const textoCiclo = p.anoReferencia ? `${p.anoReferencia - 1}/${p.anoReferencia}` : 'N/A';
           doc.setFontSize(9).setFont("helvetica", "bold").setTextColor(100);
-          doc.text(`  • Período de Referência: ${textoCiclo} | Total Usufruído: ${p.totalDiasGozados} dias`, 18, currentY);
+          doc.text(`  • Período de Referência: ${textoCiclo} | Total Consumido: ${p.totalDiasGozados} dias`, 18, currentY);
           currentY += 3;
 
-          const colunas = ["Início", "Fim", "Retorno", "Dias Parcela", "Processo PBDOC", "Status Atual"];
+          const colunas = ["Modalidade", "Início", "Fim", "Retorno", "Dias", "Processo", "Status"];
           const linhas = p.solicitacoes.map(item => {
             const hoje = new Date().toISOString().split('T')[0];
-            const dataFimFerias = getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1);
+            const isIndenizacao = item.modalidade === 'INDENIZACAO';
+            const dataFimFerias = isIndenizacao ? '' : getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1);
+            
             let sStr = item.status;
             if (item.status === 'APROVADA') {
-              if (item.dataInicioGozo > hoje) sStr = 'AGENDADA';
+              if (isIndenizacao) sStr = 'INDENIZADA';
+              else if (item.dataInicioGozo > hoje) sStr = 'AGENDADA';
               else if (dataFimFerias < hoje) sStr = 'CONCLUÍDA';
               else sStr = 'EM GOZO';
             }
 
             return [
-              calcularDataExata(item.dataInicioGozo, 0),
-              calcularDataExata(item.dataInicioGozo, item.diasSolicitados - 1),
-              calcularDataExata(item.dataInicioGozo, item.diasSolicitados),
-              item.diasSolicitados + " dias",
+              isIndenizacao ? "INDENIZAÇÃO (Pecúnia)" : "GOZO",
+              isIndenizacao ? "-" : calcularDataExata(item.dataInicioGozo, 0),
+              isIndenizacao ? "-" : calcularDataExata(item.dataInicioGozo, item.diasSolicitados - 1),
+              isIndenizacao ? "-" : calcularDataExata(item.dataInicioGozo, item.diasSolicitados),
+              item.diasSolicitados + " d",
               item.numeroPbdoc || '-',
               sStr
             ];
@@ -318,41 +328,56 @@ export function TabelaFerias() {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-100">
-          {listaItens.map((item) => (
-            <tr key={item.id} className="hover:bg-blue-50/30 transition-colors duration-150">
-              {!ocultarSetorInfo && (
-                <td className="px-5 py-3.5 whitespace-nowrap">
-                  <div className="text-sm font-bold text-gray-800">{item.servidorNome}</div>
-                  <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">Mat: {item.matricula || '-'}</div>
-                  {filtroStatus !== 'HISTORICO' && <div className="text-xs font-semibold text-indigo-600 mt-1">{item.lotacao || 'Lotação não informada'}</div>}
-                </td>
-              )}
-              <td className="px-5 py-3.5 whitespace-nowrap text-center">
-                <div className="text-sm font-black text-gray-700">{item.diasSolicitados} dias</div>
+          {listaItens.map((item) => {
+            const isIndenizacao = item.modalidade === 'INDENIZACAO';
+
+            return (
+              <tr key={item.id} className={`${isIndenizacao ? 'hover:bg-amber-50/40 bg-amber-50/10' : 'hover:bg-blue-50/30'} transition-colors duration-150`}>
                 {!ocultarSetorInfo && (
-                  <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    Ref: {item.anoReferencia ? `${item.anoReferencia - 1}/${item.anoReferencia}` : 'N/A'}
-                  </div>
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="text-sm font-bold text-gray-800">{item.servidorNome}</div>
+                    <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">Mat: {item.matricula || '-'}</div>
+                    {filtroStatus !== 'HISTORICO' && <div className="text-xs font-semibold text-indigo-600 mt-1">{item.lotacao || 'Lotação não informada'}</div>}
+                  </td>
                 )}
-              </td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-bold text-blue-700">{calcularDataExata(item.dataInicioGozo, 0)}</td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-bold text-red-600">{calcularDataExata(item.dataInicioGozo, item.diasSolicitados - 1)}</td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-black text-emerald-700 bg-emerald-50/20">{calcularDataExata(item.dataInicioGozo, item.diasSolicitados)}</td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center text-xs font-mono text-gray-500 font-bold">{item.numeroPbdoc || '-'}</td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center">{renderStatus(item.status, item.dataInicioGozo, getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1))}</td>
-              <td className="px-5 py-3.5 whitespace-nowrap text-center">
-                {item.status === 'PENDENTE_CHEFIA' && (
-                  <div className="flex justify-center gap-1.5">
-                    <button onClick={() => aprovarPedido(item.id)} title="Aprovar" className="bg-emerald-100 text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-200 transition-colors shadow-sm"><Check size={15} /></button>
-                    <button onClick={() => rejeitarPedido(item.id)} title="Rejeitar" className="bg-red-100 text-red-700 p-1.5 rounded-lg hover:bg-red-200 transition-colors shadow-sm"><X size={15} /></button>
-                  </div>
-                )}
-                {item.status === 'APROVADA' && filtroStatus !== 'HISTORICO' && (
-                  <button onClick={() => interromperPedido(item.id)} title="Interromper Férias" className="mx-auto bg-amber-100 text-amber-700 p-1.5 rounded-lg hover:bg-amber-200 flex items-center transition-colors shadow-sm"><AlertTriangle size={15} /></button>
-                )}
-              </td>
-            </tr>
-          ))}
+                <td className="px-5 py-3.5 whitespace-nowrap text-center">
+                  <div className="text-sm font-black text-gray-700">{item.diasSolicitados} dias</div>
+                  {!ocultarSetorInfo && (
+                    <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      Ref: {item.anoReferencia ? `${item.anoReferencia - 1}/${item.anoReferencia}` : 'N/A'}
+                    </div>
+                  )}
+                </td>
+
+                {/* ---> AS COLUNAS DINÂMICAS QUE OCULTAM DATAS SE FOR INDENIZAÇÃO <--- */}
+                <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-bold text-blue-700">
+                  {isIndenizacao ? <span className="text-gray-400">--/--/----</span> : calcularDataExata(item.dataInicioGozo, 0)}
+                </td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-bold text-red-600">
+                  {isIndenizacao ? <span className="text-amber-600 italic">Não se aplica (Pecúnia)</span> : calcularDataExata(item.dataInicioGozo, item.diasSolicitados - 1)}
+                </td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-center text-sm font-black text-emerald-700 bg-emerald-50/20">
+                  {isIndenizacao ? <span className="text-amber-700/60 font-medium italic">Não se aplica</span> : calcularDataExata(item.dataInicioGozo, item.diasSolicitados)}
+                </td>
+                
+                <td className="px-5 py-3.5 whitespace-nowrap text-center text-xs font-mono text-gray-500 font-bold">{item.numeroPbdoc || '-'}</td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-center">
+                  {renderStatus(item.status, item.dataInicioGozo, isIndenizacao ? '' : getRawDataFim(item.dataInicioGozo, item.diasSolicitados - 1), item.modalidade)}
+                </td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-center">
+                  {item.status === 'PENDENTE_CHEFIA' && (
+                    <div className="flex justify-center gap-1.5">
+                      <button onClick={() => aprovarPedido(item.id)} title="Aprovar" className="bg-emerald-100 text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-200 transition-colors shadow-sm"><Check size={15} /></button>
+                      <button onClick={() => rejeitarPedido(item.id)} title="Rejeitar" className="bg-red-100 text-red-700 p-1.5 rounded-lg hover:bg-red-200 transition-colors shadow-sm"><X size={15} /></button>
+                    </div>
+                  )}
+                  {item.status === 'APROVADA' && !isIndenizacao && filtroStatus !== 'HISTORICO' && (
+                    <button onClick={() => interromperPedido(item.id)} title="Interromper Férias" className="mx-auto bg-amber-100 text-amber-700 p-1.5 rounded-lg hover:bg-amber-200 flex items-center transition-colors shadow-sm"><AlertTriangle size={15} /></button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -536,7 +561,7 @@ export function TabelaFerias() {
                                               <span className="text-xs font-black text-gray-700">Período de Referência: <strong className="text-indigo-700">{textoCiclo}</strong></span>
                                             </div>
                                             <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full shadow-xs">
-                                              Total Usufruído: {per.totalDiasGozados} dias
+                                              Total Usufruído/Indenizado: {per.totalDiasGozados} dias
                                             </span>
                                           </div>
 

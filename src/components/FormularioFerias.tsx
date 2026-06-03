@@ -3,30 +3,42 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '../services/api';
 import { useEffect, useState } from 'react';
-import { CalendarPlus, Send, Calculator, Info, AlertCircle, CalendarDays, ArrowRight, History } from 'lucide-react';
+import { CalendarPlus, Send, Calculator, Info, AlertCircle, CalendarDays, ArrowRight, History, Palmtree, Coins } from 'lucide-react';
 
 // =====================================================================
-// 1. O SCHEMA INTELIGENTE (Cruza a chave "isRetroativo" com a Data)
+// 1. O SCHEMA INTELIGENTE (Cruza as validações de Modalidade e Data)
 // =====================================================================
 const formSchema = z.object({
   periodoId: z.number({ message: "Selecione um período aquisitivo" }).min(1, "Selecione um período aquisitivo"),
-  isRetroativo: z.boolean().default(false), // <-- NOVO: Flag de modo histórico
-  dataInicioGozo: z.string().min(1, "A data de início é obrigatória"),
+  isRetroativo: z.boolean(), // <-- REMOVIDO o .default()
+  modalidade: z.enum(['GOZO', 'INDENIZACAO']), // <-- REMOVIDO o .default()
+  dataInicioGozo: z.string().optional().or(z.literal('')),
   diasSolicitados: z.number({ message: "Informe um número válido" }).min(1, "Mínimo de 1 dia").max(40, "Máximo de 40 dias"),
   numeroPbdoc: z.string().min(3, "Informe o número do processo PBDOC válido")
 }).superRefine((data, ctx) => {
-  const hoje = new Date().toISOString().split('T')[0];
-  
-  // Se NÃO for retroativo e a data for menor que hoje, gera o erro
-  if (!data.isRetroativo && data.dataInicioGozo < hoje) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "A data não pode ser retroativa. Ative o 'Registro Histórico' acima.",
-      path: ["dataInicioGozo"]
-    });
+  // Regras aplicáveis APENAS se for GOZO (Descanso)
+  if (data.modalidade === 'GOZO') {
+    if (!data.dataInicioGozo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A data de início é obrigatória",
+        path: ["dataInicioGozo"]
+      });
+      return;
+    }
+
+ const hoje = new Date().toISOString().split('T')[0];
+    
+    // Se NÃO for retroativo e a data for menor que hoje, gera o erro
+    if (!data.isRetroativo && data.dataInicioGozo < hoje) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A data não pode ser retroativa. Ative o 'Registro Histórico' acima.",
+        path: ["dataInicioGozo"]
+      });
+    }
   }
 });
-
 type FormularioData = z.infer<typeof formSchema>;
 
 export function FormularioFerias() {
@@ -35,13 +47,14 @@ export function FormularioFerias() {
 
   const { register, handleSubmit, watch, formState: { errors }, reset, setValue } = useForm<FormularioData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { isRetroativo: false }
+    defaultValues: { isRetroativo: false, modalidade: 'GOZO' }
   });
 
   const periodoSelecionadoId = watch('periodoId');
   const dataInicioGozo = watch('dataInicioGozo');
   const diasSolicitados = watch('diasSolicitados');
-  const isRetroativoAtivo = watch('isRetroativo'); // Observa a chave
+  const isRetroativoAtivo = watch('isRetroativo');
+  const modalidadeSelecionada = watch('modalidade');
 
   const periodoAtual = periodos.find(p => p.id === periodoSelecionadoId);
   const ehOperadorRaioX = periodoAtual?.servidor?.operadorRaioX;
@@ -101,8 +114,15 @@ export function FormularioFerias() {
   };
 
   const diasMath = Number(diasSolicitados) || 0;
-  const dataFimPreview = dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, diasMath - 1) : '--/--/----';
-  const dataRetornoPreview = dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, diasMath) : '--/--/----';
+  
+  // Lógica dinâmica para o Resumo
+  const dataFimPreview = modalidadeSelecionada === 'INDENIZACAO' 
+    ? 'Não se aplica (Pecúnia)' 
+    : (dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, diasMath - 1) : '--/--/----');
+    
+  const dataRetornoPreview = modalidadeSelecionada === 'INDENIZACAO' 
+    ? 'Não se aplica' 
+    : (dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, diasMath) : '--/--/----');
 
   const salvarSolicitacao = async (data: FormularioData) => {
     if (ehOperadorRaioX && data.diasSolicitados !== 20) {
@@ -112,16 +132,17 @@ export function FormularioFerias() {
 
     try {
       await api.post(`/periodos/${data.periodoId}/solicitacoes`, {
-        dataInicioGozo: data.dataInicioGozo,
+        modalidade: data.modalidade, // <-- Enviando Modalidade pro Java
+        dataInicioGozo: data.modalidade === 'GOZO' ? data.dataInicioGozo : null, // Indenização envia nulo
         diasSolicitados: data.diasSolicitados,
         numeroPbdoc: data.numeroPbdoc,
         abonoPecuniario: false,
         isRetroativo: data.isRetroativo 
       });
       
-      alert(data.isRetroativo ? '✅ Histórico retroativo registrado com sucesso (Já Aprovado)!' : '✅ Solicitação de férias agendada com sucesso!');
+      alert(data.isRetroativo ? `✅ Histórico retroativo registrado com sucesso!` : `✅ Solicitação de férias agendada com sucesso!`);
       
-      reset();
+      reset({ isRetroativo: false, modalidade: 'GOZO' });
       setServidorSelecionadoId('');
       
     } catch (error: any) {
@@ -146,9 +167,7 @@ export function FormularioFerias() {
 
       <form onSubmit={handleSubmit(salvarSolicitacao)} className="p-8">
         
-        {/* ========================================================= */}
-        {/* TOGGLE MODO RETROATIVO (NOVO)                             */}
-        {/* ========================================================= */}
+        {/* TOGGLE MODO RETROATIVO */}
         <div className={`flex items-center justify-between p-4 mb-8 rounded-xl border transition-all duration-300 ${isRetroativoAtivo ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${isRetroativoAtivo ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>
@@ -232,14 +251,40 @@ export function FormularioFerias() {
               </div>
             )}
 
-            {/* GRID: LADO A LADO PARA DATAS */}
+            {/* 3º MODALIDADE (GOZO VS INDENIZAÇÃO) */}
+            {servidorSelecionadoId !== '' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">3. Natureza do Lançamento</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setValue('modalidade', 'GOZO', { shouldValidate: true })}
+                    className={`flex items-center justify-center gap-2 p-3.5 rounded-xl font-bold text-sm border transition-all ${modalidadeSelecionada === 'GOZO' ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <Palmtree size={18} />
+                    ⛱️ Gozo de Férias
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setValue('modalidade', 'INDENIZACAO', { shouldValidate: true }); setValue('dataInicioGozo', ''); }}
+                    className={`flex items-center justify-center gap-2 p-3.5 rounded-xl font-bold text-sm border transition-all ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <Coins size={18} />
+                    💰 Indenização (Pecúnia)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* GRID: LADO A LADO PARA DATAS E DIAS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Data de Início do Gozo</label>
                 <input 
                   type="date" 
+                  disabled={modalidadeSelecionada === 'INDENIZACAO'}
                   {...register('dataInicioGozo')}
-                  className={`w-full border rounded-xl p-3.5 focus:ring-4 outline-none transition-all duration-200 ${isRetroativoAtivo ? 'bg-amber-50 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500' : 'bg-gray-50 border-gray-300 focus:ring-blue-500/20 focus:border-blue-500 hover:bg-white'}`}
+                  className={`w-full border rounded-xl p-3.5 focus:ring-4 outline-none transition-all duration-200 ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : (isRetroativoAtivo ? 'bg-amber-50 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500' : 'bg-gray-50 border-gray-300 focus:ring-blue-500/20 focus:border-blue-500 hover:bg-white')}`}
                 />
                 {errors.dataInicioGozo && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.dataInicioGozo.message}</span>}
               </div>
@@ -277,9 +322,9 @@ export function FormularioFerias() {
           <div className="w-full lg:w-80 shrink-0">
             <div className="sticky top-6 space-y-5">
               
-              <div className={`p-6 rounded-2xl border transition-all duration-300 shadow-sm ${dataInicioGozo && diasMath > 0 ? (isRetroativoAtivo ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-200') : 'bg-gray-50 border-gray-200'}`}>
+              <div className={`p-6 rounded-2xl border transition-all duration-300 shadow-sm ${(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 ? (isRetroativoAtivo ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-200') : 'bg-gray-50 border-gray-200'}`}>
                 <h3 className="text-sm font-bold flex items-center gap-2 mb-6 text-gray-800 border-b border-gray-200/60 pb-3">
-                  <Calculator size={18} className={dataInicioGozo && diasMath > 0 ? (isRetroativoAtivo ? 'text-amber-600' : 'text-indigo-600') : 'text-gray-400'} /> 
+                  <Calculator size={18} className={(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 ? (isRetroativoAtivo ? 'text-amber-600' : 'text-indigo-600') : 'text-gray-400'} /> 
                   Resumo do Agendamento
                 </h3>
                 
@@ -287,20 +332,20 @@ export function FormularioFerias() {
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Início</span>
                     <span className={`text-sm font-black ${dataInicioGozo && diasMath > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
-                      {dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, 0) : '--/--/----'}
+                      {modalidadeSelecionada === 'INDENIZACAO' ? '--/--/----' : (dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, 0) : '--/--/----')}
                     </span>
                   </div>
                   
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Fim</span>
-                    <span className={`text-sm font-black ${dataInicioGozo && diasMath > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 ? 'text-red-600' : 'text-gray-400')}`}>
                       {dataFimPreview}
                     </span>
                   </div>
                   
                   <div className="pt-3 border-t border-gray-200/60 flex justify-between items-center">
                     <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Retorno</span>
-                    <span className={`text-sm font-black ${dataInicioGozo && diasMath > 0 ? 'text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-1 rounded shadow-sm' : 'text-gray-400'}`}>
+                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 ? 'text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-1 rounded shadow-sm' : 'text-gray-400')}`}>
                       {dataRetornoPreview}
                     </span>
                   </div>

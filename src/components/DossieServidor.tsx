@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { History, CalendarDays, CheckCircle, FileText, Clock, AlertTriangle, X } from 'lucide-react';
+import { History, CalendarDays, CheckCircle, FileText, Clock, AlertTriangle, X, Coins } from 'lucide-react';
 
 interface DossieProps {
   servidorId: number;
@@ -16,11 +16,9 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
   useEffect(() => {
     if (servidorId) {
       setLoading(true);
-      // Puxa os períodos e filtra os que pertencem a este servidor
       api.get('/periodos') 
         .then(response => {
           const periodosDoServidor = response.data.filter((p: any) => p.servidor?.id === servidorId);
-          // Ordena do período mais recente para o mais antigo (Máquina do Tempo)
           periodosDoServidor.sort((a: any, b: any) => b.anoReferencia - a.anoReferencia);
           setPeriodos(periodosDoServidor);
         })
@@ -30,7 +28,7 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
   }, [servidorId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="w-full max-w-4xl bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col">
         
         {/* CABEÇALHO DO MODAL */}
@@ -57,13 +55,13 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
           </button>
         </div>
 
-        {/* CORPO DO MODAL COM ROLAGEM INDEPENDENTE */}
+        {/* CORPO DO MODAL */}
         <div className="p-8 overflow-y-auto flex-1 bg-slate-50/50">
           
           {loading && (
             <div className="text-center py-20 text-slate-500 font-medium animate-pulse flex flex-col items-center gap-2">
               <Clock className="animate-spin text-slate-400" size={32} />
-              <span>A resgatar histórico do arquivo funcional...</span>
+              <span>Resgatando histórico do arquivo funcional...</span>
             </div>
           )}
 
@@ -80,7 +78,7 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
                 return (
                   <div key={periodo.id} className="mb-10 ml-8 relative">
                     
-                    {/* INDICADOR DE STATUS DA TIMELINE */}
+                    {/* INDICADOR DA TIMELINE */}
                     <span className={`absolute flex items-center justify-center w-8 h-8 rounded-full -left-[49px] ring-4 ring-white shadow-sm ${isConcluido ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
                       {isConcluido ? <CheckCircle size={16} /> : <Clock size={16} />}
                     </span>
@@ -95,7 +93,7 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
                             Exercício de Referência: {tituloRef}
                           </h3>
                           <p className="text-xs font-semibold text-slate-400 mt-0.5">
-                            Período Laboral: {new Date(periodo.dataInicio).toLocaleDateString('pt-BR')} até {new Date(periodo.dataFim).toLocaleDateString('pt-BR')}
+                            Período Laboral: {new Date(periodo.dataInicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} até {new Date(periodo.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
                           </p>
                         </div>
                         
@@ -106,38 +104,52 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
                         </div>
                       </div>
 
-                      {/* HISTÓRICO DE GOZOS E OCORRÊNCIAS */}
+                      {/* HISTÓRICO DE GOZOS E INDENIZAÇÕES */}
                       <div>
                         <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                           <FileText size={12} /> Assentamentos e Concessões Registadas
                         </h4>
                         
-                        {/* Se houver solicitações, renderiza a listagem */}
                         {periodo.solicitacoes && periodo.solicitacoes.length > 0 ? (
                           <div className="space-y-2.5">
-                            {periodo.solicitacoes.map((sol: any, idx: number) => (
-                              <div key={idx} className="flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl p-3 hover:bg-slate-100/50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                  <div className="bg-blue-50 text-blue-600 p-2 rounded-lg border border-blue-100">
-                                    <CheckCircle size={16} />
+                            {periodo.solicitacoes.map((sol: any, idx: number) => {
+                              // ---> REGRA VISUAL: VERIFICA SE FOI INDENIZADO <---
+                              const isIndenizacao = sol.modalidade === 'INDENIZACAO';
+
+                              return (
+                                <div key={idx} className={`flex items-center justify-between border rounded-xl p-3 transition-colors ${isIndenizacao ? 'bg-amber-50/40 border-amber-200/70 hover:bg-amber-50/80' : 'bg-slate-50 border-slate-200/60 hover:bg-slate-100/50'}`}>
+                                  <div className="flex items-center gap-3">
+                                    {/* Ícone Dinâmico */}
+                                    <div className={`p-2 rounded-lg border ${isIndenizacao ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                                      {isIndenizacao ? <Coins size={16} /> : <CheckCircle size={16} />}
+                                    </div>
+                                    
+                                    {/* Texto Dinâmico */}
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-700">
+                                        {sol.diasSolicitados} dias {isIndenizacao ? 'convertidos em pecúnia' : 'de férias usufruídas'}
+                                      </p>
+                                      <p className="text-[11px] font-medium text-slate-400">
+                                        {isIndenizacao 
+                                          ? 'Afastamento: Não se aplica' 
+                                          : `Início do Afastamento: ${new Date(sol.dataInicioGozo).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`}
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-xs font-bold text-slate-700">{sol.diasSolicitados} dias de férias usufruídas</p>
-                                    <p className="text-[11px] font-medium text-slate-400">Início do Afastamento: {new Date(sol.dataInicioGozo).toLocaleDateString('pt-BR')}</p>
+                                  
+                                  <div className="text-right">
+                                    <span className="inline-block px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black text-slate-500 shadow-sm uppercase">
+                                      {sol.status}
+                                    </span>
+                                    {sol.numeroPbdoc && <p className="text-[9px] text-slate-400 font-bold mt-0.5 uppercase tracking-tight">Processo: {sol.numeroPbdoc}</p>}
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="inline-block px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black text-slate-500 shadow-sm uppercase">
-                                    {sol.status}
-                                  </span>
-                                  {sol.numeroPbdoc && <p className="text-[9px] text-slate-400 font-bold mt-0.5 uppercase tracking-tight">Processo: {sol.numeroPbdoc}</p>}
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 text-xs text-slate-400 font-medium bg-slate-50 p-3.5 rounded-xl border border-dashed border-slate-200">
-                            <AlertTriangle size={14} className="text-slate-400 shrink-0" /> Não constam concessões de gozo efetivadas para este ciclo.
+                            <AlertTriangle size={14} className="text-slate-400 shrink-0" /> Não constam concessões efetivadas para este ciclo.
                           </div>
                         )}
                       </div>
