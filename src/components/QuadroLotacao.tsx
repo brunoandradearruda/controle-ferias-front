@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info, FileText, Check } from 'lucide-react';
+import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info, FileText, Check, PauseCircle, CalendarOff } from 'lucide-react';
 import { DossieServidor } from './DossieServidor'; 
 
 interface Servidor {
@@ -23,14 +23,20 @@ export function QuadroLotacao() {
   const [servidorParaPassivo, setServidorParaPassivo] = useState<Servidor | null>(null);
   const [periodosSelecionados, setPeriodosSelecionados] = useState<number[]>([]); 
   const [salvandoPassivo, setSalvandoPassivo] = useState(false); 
-  
-  // NOVO: Controle dos períodos que já estão no banco para bloquear os botões
   const [periodosJaRegistrados, setPeriodosJaRegistrados] = useState<number[]>([]);
   const [carregandoPeriodos, setCarregandoPeriodos] = useState(false);
 
   // ---> ESTADOS DO MODAL DE DOSSIÊ/HISTÓRICO <---
   const [modalHistoricoAberto, setModalHistoricoAberto] = useState(false);
   const [servidorParaHistorico, setServidorParaHistorico] = useState<Servidor | null>(null);
+
+  // ---> ESTADOS DO MODAL DE AFASTAMENTO <---
+  const [modalAfastamentoAberto, setModalAfastamentoAberto] = useState(false);
+  const [servidorParaAfastamento, setServidorParaAfastamento] = useState<Servidor | null>(null);
+  const [tipoAfastamento, setTipoAfastamento] = useState('');
+  const [dataInicioAfastamento, setDataInicioAfastamento] = useState('');
+  const [dataFimAfastamento, setDataFimAfastamento] = useState('');
+  const [salvandoAfastamento, setSalvandoAfastamento] = useState(false);
 
   const buscarServidores = async () => {
     try {
@@ -72,7 +78,7 @@ export function QuadroLotacao() {
   };
 
   // =======================================================================
-  // ---> LÓGICA DO PASSIVO (MODAL EM LOTE) <---
+  // ---> LÓGICA DO PASSIVO EM LOTE <---
   // =======================================================================
   const abrirModalPassivo = async (servidor: Servidor) => {
     setServidorParaPassivo(servidor);
@@ -80,21 +86,11 @@ export function QuadroLotacao() {
     setPeriodosJaRegistrados([]);
     setModalPassivoAberto(true);
 
-try {
+    try {
       setCarregandoPeriodos(true);
       const response = await api.get(`/servidores/${servidor.id}/periodos`);
-      
-      // 🕵️ DETETIVE 1: O que o Java enviou?
-      console.log("RESPOSTA DA API:", response.data); 
-      
-      // Tratando caso o Spring Boot tenha retornado uma página (Pageable)
       const listaPeriodos = response.data.content ? response.data.content : response.data;
-
-      // 🕵️ DETETIVE 2: Forçando a conversão para Número para evitar erros de tipo
       const anosJaCadastrados = listaPeriodos.map((p: any) => Number(p.anoReferencia));
-      
-      console.log("ANOS BLOQUEADOS EXTRAÍDOS:", anosJaCadastrados);
-
       setPeriodosJaRegistrados(anosJaCadastrados);
     } catch (error) {
       console.error("Erro ao verificar períodos já registrados:", error);
@@ -134,21 +130,53 @@ try {
 
   const gerarOpcoesPeriodo = (dataAdmissaoString?: string) => {
     if (!dataAdmissaoString) return [];
-    
     const anoAdmissao = parseInt(dataAdmissaoString.substring(0, 4), 10);
     const anoAtual = new Date().getFullYear();
     const opcoes = [];
-
     for (let ano = anoAdmissao + 1; ano <= anoAtual; ano++) {
-      opcoes.push({
-        texto: `${ano - 1}/${ano}`,
-        valorEnvio: ano
-      });
+      opcoes.push({ texto: `${ano - 1}/${ano}`, valorEnvio: ano });
     }
-    
     return opcoes.reverse();
   };
+
   // =======================================================================
+  // ---> LÓGICA DE AFASTAMENTOS <---
+  // =======================================================================
+  const abrirModalAfastamento = (servidor: Servidor) => {
+    setServidorParaAfastamento(servidor);
+    setTipoAfastamento('');
+    setDataInicioAfastamento('');
+    setDataFimAfastamento('');
+    setModalAfastamentoAberto(true);
+  };
+
+  const salvarAfastamento = async () => {
+    if (!servidorParaAfastamento || !tipoAfastamento || !dataInicioAfastamento || !dataFimAfastamento) {
+      alert("Preencha todos os campos do formulário.");
+      return;
+    }
+
+    if (new Date(dataInicioAfastamento) > new Date(dataFimAfastamento)) {
+      alert("❌ A Data de Início não pode ser maior que a Data Fim.");
+      return;
+    }
+
+    try {
+      setSalvandoAfastamento(true);
+      await api.post(`/servidores/${servidorParaAfastamento.id}/afastamentos`, {
+        tipo: tipoAfastamento,
+        dataInicio: dataInicioAfastamento,
+        dataFim: dataFimAfastamento
+      });
+
+      alert(`✅ Afastamento registrado com sucesso!\nO período aquisitivo de ${servidorParaAfastamento.nome} foi recalculado automaticamente.`);
+      setModalAfastamentoAberto(false);
+    } catch (error: any) {
+      alert("❌ Erro ao registrar afastamento: " + (error.response?.data?.message || "Erro desconhecido."));
+    } finally {
+      setSalvandoAfastamento(false);
+    }
+  };
 
   const servidoresPorSetor = servidores.reduce((grupos, servidor) => {
     const setor = servidor.lotacao || "Sem Lotação";
@@ -174,7 +202,7 @@ try {
           <div>
             <h2 className="text-2xl font-bold">Quadro de Lotação - SEPLAG</h2>
             <p className="text-blue-100/90 text-sm mt-1 font-medium">
-              Gerencie a base de servidores, status de atividade e histórico de férias atrasadas.
+              Gerencie a base de servidores, status de atividade, histórico e afastamentos legais.
             </p>
           </div>
         </div>
@@ -198,11 +226,12 @@ try {
               <table className="min-w-full table-fixed divide-y divide-gray-200">
                 <thead className="bg-white">
                   <tr>
+                    {/* Ajuste de larguras para dar mais espaço ao nome do servidor */}
                     <th className="w-[12%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Matrícula</th>
-                    <th className="w-[30%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome do Servidor</th>
-                    <th className="w-[28%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cargo</th>
-                    <th className="w-[10%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="w-[20%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                    <th className="w-[38%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome do Servidor</th>
+                    <th className="w-[20%] px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cargo</th>
+                    <th className="w-[12%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="w-[18%] px-5 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-gray-50/30">
@@ -227,46 +256,70 @@ try {
                           </div>
                         )}
                       </td>
+                      
+                      {/* ================================================================= */}
+                      {/* NOVA INTERFACE DE AÇÕES: Clean, Ícones, Hover State e Tooltips    */}
+                      {/* ================================================================= */}
                       <td className="px-5 py-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1">
                           
+                          {/* 1. Dossiê (Cinza Escuro) */}
                           <button 
                             onClick={() => {
                               setServidorParaHistorico(srv);
                               setModalHistoricoAberto(true);
                             }}
-                            className="flex items-center gap-1.5 text-xs font-bold bg-slate-800 border border-slate-700 text-white hover:bg-slate-900 py-2 px-2.5 rounded-lg shadow-sm transition-all"
+                            className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-all"
                             title="Ver Dossiê Histórico Completo"
                           >
-                            <FileText size={14} className="text-slate-300" />
-                            Dossiê
+                            <FileText size={18} />
                           </button>
 
                           {srv.ativo && (
-                            <button 
-                              onClick={() => abrirModalPassivo(srv)}
-                              className="flex items-center gap-1.5 text-xs font-bold bg-amber-100 border border-amber-200 text-amber-700 hover:bg-amber-200 py-2 px-2.5 rounded-lg shadow-sm transition-all"
-                              title="Adicionar saldo de férias de anos anteriores"
-                            >
-                              <History size={14} />
-                              Passivo
-                            </button>
+                            <>
+                              {/* 2. Passivo (Laranja) */}
+                              <button 
+                                onClick={() => abrirModalPassivo(srv)}
+                                className="p-2 text-amber-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-all"
+                                title="Adicionar Férias Acumuladas (Passivo)"
+                              >
+                                <History size={18} />
+                              </button>
+
+                              {/* 3. Afastamento (Roxo) */}
+                              <button 
+                                onClick={() => abrirModalAfastamento(srv)}
+                                className="p-2 text-purple-400 hover:text-purple-700 hover:bg-purple-100 rounded-lg transition-all"
+                                title="Registrar Afastamento ou Suspensão"
+                              >
+                                <PauseCircle size={18} />
+                              </button>
+
+                              {/* Linha Divisória de Segurança */}
+                              <div className="w-px h-5 bg-gray-300 mx-1.5 rounded-full"></div>
+
+                              {/* 4. Desligar (Vermelho) */}
+                              <button 
+                                onClick={() => inativar(srv.id, srv.nome)}
+                                className="p-2 text-red-400 hover:text-red-700 hover:bg-red-100 rounded-lg transition-all"
+                                title="Desligar Servidor"
+                              >
+                                <UserMinus size={18} />
+                              </button>
+                            </>
                           )}
                           
-                          {srv.ativo ? (
-                            <button 
-                              onClick={() => inativar(srv.id, srv.nome)}
-                              className="text-xs font-bold bg-white border border-red-200 text-red-600 hover:bg-red-50 py-2 px-2.5 rounded-lg shadow-sm transition-all"
-                            >
-                              Desligar
-                            </button>
-                          ) : (
-                            <button 
-                              onClick={() => reativar(srv.id)}
-                              className="text-xs font-bold bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50 py-2 px-2.5 rounded-lg shadow-sm transition-all"
-                            >
-                              Reativar
-                            </button>
+                          {!srv.ativo && (
+                            <>
+                              <div className="w-px h-5 bg-gray-300 mx-1.5 rounded-full"></div>
+                              <button 
+                                onClick={() => reativar(srv.id)}
+                                className="p-2 text-emerald-400 hover:text-emerald-700 hover:bg-emerald-100 rounded-lg transition-all"
+                                title="Reativar Servidor"
+                              >
+                                <UserCheck size={18} />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -278,6 +331,97 @@ try {
           </div>
         ))}
       </div>
+
+      {/* ===================================================================== */}
+      {/* MODAL DE AFASTAMENTO / SUSPENSÃO                                      */}
+      {/* ===================================================================== */}
+      {modalAfastamentoAberto && servidorParaAfastamento && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-purple-100">
+            
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-5 flex justify-between items-center text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <CalendarOff size={22} />
+                Registrar Afastamento
+              </h3>
+              <button onClick={() => setModalAfastamentoAberto(false)} className="text-purple-100 hover:text-white transition-colors bg-purple-800/30 hover:bg-purple-800/50 p-1.5 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-7">
+              <div className="mb-6">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Servidor(a)</p>
+                <p className="text-lg font-black text-gray-800">{servidorParaAfastamento.nome}</p>
+              </div>
+
+              <div className="bg-purple-50/70 border border-purple-100 rounded-xl p-4 mb-6 flex gap-3 text-sm text-purple-800 shadow-sm">
+                <Info className="shrink-0 mt-0.5 text-purple-500" size={18} />
+                <p className="leading-relaxed font-medium text-xs">
+                  Os dias registrados neste afastamento irão <strong>pausar a contagem</strong> e adiar a data final do período aquisitivo vigente do servidor.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">Tipo Legal do Afastamento</label>
+                  <select 
+                    value={tipoAfastamento}
+                    onChange={(e) => setTipoAfastamento(e.target.value)}
+                    className="w-full border border-gray-300 rounded-xl p-3 focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 font-medium text-sm"
+                  >
+                    <option value="">Selecione o enquadramento...</option>
+                    <option value="LICENCA_SEM_VENCIMENTO">Licença Sem Vencimento</option>
+                    <option value="FALTAS_NAO_JUSTIFICADAS">Faltas Não Justificadas</option>
+                    <option value="SUSPENSAO_DISCIPLINAR">Suspensão Disciplinar</option>
+                    <option value="LICENCA_TRATO_INTERESSE_PARTICULAR">Licença p/ Trato de Interesse Particular (LIP)</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Data de Início</label>
+                    <input 
+                      type="date"
+                      value={dataInicioAfastamento}
+                      onChange={(e) => setDataInicioAfastamento(e.target.value)}
+                      className="w-full border border-gray-300 rounded-xl p-3 focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 bg-gray-50 hover:bg-white outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Data de Fim</label>
+                    <input 
+                      type="date"
+                      value={dataFimAfastamento}
+                      onChange={(e) => setDataFimAfastamento(e.target.value)}
+                      className="w-full border border-gray-300 rounded-xl p-3 focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 bg-gray-50 hover:bg-white outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="bg-gray-50 px-7 py-5 border-t border-gray-100 flex justify-end gap-3">
+              <button 
+                onClick={() => setModalAfastamentoAberto(false)}
+                className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={salvarAfastamento}
+                disabled={salvandoAfastamento || !tipoAfastamento || !dataInicioAfastamento || !dataFimAfastamento}
+                className="px-6 py-2.5 text-sm font-bold text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-purple-500/30 flex items-center gap-2"
+              >
+                <PauseCircle size={16} />
+                {salvandoAfastamento ? 'Salvando...' : 'Aplicar Suspensão'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* MODAL DE ADIÇÃO DE FÉRIAS ATRASADAS (PASSIVO EM LOTE)                 */}
@@ -300,11 +444,6 @@ try {
               <div className="mb-6">
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Servidor(a)</p>
                 <p className="text-lg font-black text-gray-800">{servidorParaPassivo.nome}</p>
-                {servidorParaPassivo.dataAdmissao && (
-                  <div className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold px-2.5 py-1 rounded-md bg-gray-100 text-gray-600 border border-gray-200">
-                    Admissão Oficial: {new Date(servidorParaPassivo.dataAdmissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
-                  </div>
-                )}
               </div>
 
               <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-4 mb-6 flex gap-3 text-sm text-blue-800 shadow-sm">
@@ -329,19 +468,18 @@ try {
                   ) : (
                     gerarOpcoesPeriodo(servidorParaPassivo.dataAdmissao).map((opcao) => {
                       const isSelecionado = periodosSelecionados.includes(opcao.valorEnvio);
-                      // MUDANÇA: Verifica se o período já está no banco de dados
                       const isJaRegistrado = periodosJaRegistrados.includes(opcao.valorEnvio);
                       
                       return (
                         <button
                           key={opcao.valorEnvio}
                           type="button"
-                          disabled={isJaRegistrado} // Bloqueia o clique se já existir
+                          disabled={isJaRegistrado}
                           onClick={() => togglePeriodo(opcao.valorEnvio)}
                           title={isJaRegistrado ? "Período já cadastrado no sistema" : "Clique para selecionar"}
                           className={`flex items-center justify-center p-3 rounded-lg text-sm font-bold transition-all border-2
                             ${isJaRegistrado 
-                              ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-70' // Estilo Bloqueado
+                              ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-70'
                               : isSelecionado 
                                 ? 'bg-amber-100 border-amber-500 text-amber-800 shadow-sm transform scale-[1.02]' 
                                 : 'bg-white border-gray-200 text-gray-600 hover:border-amber-300 hover:bg-amber-50'
@@ -354,10 +492,6 @@ try {
                     })
                   )}
                 </div>
-                
-                <p className="text-xs text-gray-500 mt-2 font-medium">
-                  {periodosSelecionados.length} período(s) novo(s) selecionado(s) para registro.
-                </p>
               </div>
             </div>
 
