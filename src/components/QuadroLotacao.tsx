@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info, FileText } from 'lucide-react';
-import { DossieServidor } from './DossieServidor'; // Ajuste o caminho se o DossieServidor estiver em outra pasta
+import { Users, UserMinus, UserCheck, Building2, History, X, CalendarPlus, Info, FileText, Check } from 'lucide-react';
+import { DossieServidor } from './DossieServidor'; 
 
 interface Servidor {
   id: number;
@@ -21,7 +21,12 @@ export function QuadroLotacao() {
   // ---> ESTADOS DO MODAL DE PASSIVO <---
   const [modalPassivoAberto, setModalPassivoAberto] = useState(false);
   const [servidorParaPassivo, setServidorParaPassivo] = useState<Servidor | null>(null);
-  const [anoSelecionado, setAnoSelecionado] = useState<number | ''>('');
+  const [periodosSelecionados, setPeriodosSelecionados] = useState<number[]>([]); 
+  const [salvandoPassivo, setSalvandoPassivo] = useState(false); 
+  
+  // NOVO: Controle dos períodos que já estão no banco para bloquear os botões
+  const [periodosJaRegistrados, setPeriodosJaRegistrados] = useState<number[]>([]);
+  const [carregandoPeriodos, setCarregandoPeriodos] = useState(false);
 
   // ---> ESTADOS DO MODAL DE DOSSIÊ/HISTÓRICO <---
   const [modalHistoricoAberto, setModalHistoricoAberto] = useState(false);
@@ -45,9 +50,7 @@ export function QuadroLotacao() {
 
   const inativar = async (id: number, nome: string) => {
     const motivo = window.prompt(`Desligamento do servidor: ${nome}\nInforme o motivo (Ex: Aposentadoria, Exoneração, Transferência):`);
-    
     if (!motivo) return;
-
     try {
       await api.put(`/servidores/${id}/inativar`, { motivo });
       alert('✅ Servidor inativado com sucesso.');
@@ -69,25 +72,63 @@ export function QuadroLotacao() {
   };
 
   // =======================================================================
-  // ---> LÓGICA DO PASSIVO (MODAL) <---
+  // ---> LÓGICA DO PASSIVO (MODAL EM LOTE) <---
   // =======================================================================
-  const abrirModalPassivo = (servidor: Servidor) => {
+  const abrirModalPassivo = async (servidor: Servidor) => {
     setServidorParaPassivo(servidor);
-    setAnoSelecionado(''); 
+    setPeriodosSelecionados([]); 
+    setPeriodosJaRegistrados([]);
     setModalPassivoAberto(true);
+
+try {
+      setCarregandoPeriodos(true);
+      const response = await api.get(`/servidores/${servidor.id}/periodos`);
+      
+      // 🕵️ DETETIVE 1: O que o Java enviou?
+      console.log("RESPOSTA DA API:", response.data); 
+      
+      // Tratando caso o Spring Boot tenha retornado uma página (Pageable)
+      const listaPeriodos = response.data.content ? response.data.content : response.data;
+
+      // 🕵️ DETETIVE 2: Forçando a conversão para Número para evitar erros de tipo
+      const anosJaCadastrados = listaPeriodos.map((p: any) => Number(p.anoReferencia));
+      
+      console.log("ANOS BLOQUEADOS EXTRAÍDOS:", anosJaCadastrados);
+
+      setPeriodosJaRegistrados(anosJaCadastrados);
+    } catch (error) {
+      console.error("Erro ao verificar períodos já registrados:", error);
+    } finally {
+      setCarregandoPeriodos(false);
+    }
+  };
+
+  const togglePeriodo = (anoReferencia: number) => {
+    setPeriodosSelecionados((prev) => 
+      prev.includes(anoReferencia)
+        ? prev.filter((ano) => ano !== anoReferencia) 
+        : [...prev, anoReferencia] 
+    );
   };
 
   const salvarPassivo = async () => {
-    if (!anoSelecionado || !servidorParaPassivo) return;
+    if (periodosSelecionados.length === 0 || !servidorParaPassivo) return;
     
     try {
-      await api.post(`/servidores/${servidorParaPassivo.id}/periodos-acumulados`, { anoReferencia: anoSelecionado });
+      setSalvandoPassivo(true);
+      await Promise.all(
+        periodosSelecionados.map((ano) => 
+          api.post(`/servidores/${servidorParaPassivo.id}/periodos-acumulados`, { anoReferencia: ano })
+        )
+      );
       
-      alert(`✅ Período ${anoSelecionado - 1}/${anoSelecionado} para ${servidorParaPassivo.nome} adicionado com sucesso!`);
+      alert(`✅ ${periodosSelecionados.length} período(s) adicionado(s) com sucesso para ${servidorParaPassivo.nome}!`);
       setModalPassivoAberto(false);
       buscarServidores(); 
     } catch (error: any) {
-      alert("❌ Erro: " + (error.response?.data?.message || "Não foi possível adicionar o período. Verifique se este ano já não foi adicionado."));
+      alert("❌ Erro: " + (error.response?.data?.message || "Não foi possível adicionar alguns períodos. Verifique se já não foram adicionados."));
+    } finally {
+      setSalvandoPassivo(false);
     }
   };
 
@@ -127,7 +168,6 @@ export function QuadroLotacao() {
   return (
     <div className="max-w-7xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mt-6 relative">
       
-      {/* CABEÇALHO MODERNO */}
       <div className="bg-gradient-to-r from-blue-700 to-indigo-600 px-8 py-7 text-white">
         <div className="flex items-center gap-3">
           <Building2 className="text-blue-100" size={32} />
@@ -144,7 +184,6 @@ export function QuadroLotacao() {
         {Object.entries(servidoresPorSetor).map(([setor, lista]) => (
           <div key={setor} className="mb-10 last:mb-0">
             
-            {/* CABEÇALHO DO SETOR */}
             <h3 className="text-lg font-bold text-gray-800 bg-gray-50 py-3.5 px-5 rounded-t-xl border border-gray-200 flex justify-between items-center">
               <span className="flex items-center gap-2">
                 <Users size={20} className="text-blue-600" />
@@ -155,7 +194,6 @@ export function QuadroLotacao() {
               </span>
             </h3>
             
-            {/* TABELA DE SERVIDORES COM LARGURAS FIXAS (table-fixed) */}
             <div className="border border-t-0 border-gray-200 rounded-b-xl overflow-hidden shadow-sm">
               <table className="min-w-full table-fixed divide-y divide-gray-200">
                 <thead className="bg-white">
@@ -192,7 +230,6 @@ export function QuadroLotacao() {
                       <td className="px-5 py-4 text-center">
                         <div className="flex items-center justify-center gap-2">
                           
-                          {/* BOTÃO DOSSIÊ - VISÍVEL PARA ATIVOS E INATIVOS */}
                           <button 
                             onClick={() => {
                               setServidorParaHistorico(srv);
@@ -243,7 +280,7 @@ export function QuadroLotacao() {
       </div>
 
       {/* ===================================================================== */}
-      {/* MODAL DE ADIÇÃO DE FÉRIAS ATRASADAS (PASSIVO)                         */}
+      {/* MODAL DE ADIÇÃO DE FÉRIAS ATRASADAS (PASSIVO EM LOTE)                 */}
       {/* ===================================================================== */}
       {modalPassivoAberto && servidorParaPassivo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -273,26 +310,54 @@ export function QuadroLotacao() {
               <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-4 mb-6 flex gap-3 text-sm text-blue-800 shadow-sm">
                 <Info className="shrink-0 mt-0.5 text-blue-500" size={18} />
                 <p className="leading-relaxed font-medium text-xs">
-                  Selecione abaixo o <strong>período aquisitivo</strong> (ciclo de trabalho) que gerou o direito a férias que ainda não foi usufruído.
+                  Selecione abaixo os <strong>períodos aquisitivos</strong> que geraram direito a férias. <br/>
+                  <em>Períodos já registrados aparecem desabilitados em cinza.</em>
                 </p>
               </div>
 
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Período Aquisitivo Pendente
+                  Selecione os Períodos Pendentes (Múltipla Escolha)
                 </label>
-                <select 
-                  value={anoSelecionado}
-                  onChange={(e) => setAnoSelecionado(Number(e.target.value))}
-                  className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 cursor-pointer font-medium"
-                >
-                  <option value="">-- Selecione o Período --</option>
-                  {gerarOpcoesPeriodo(servidorParaPassivo.dataAdmissao).map((opcao) => (
-                    <option key={opcao.valorEnvio} value={opcao.valorEnvio}>
-                      Período de Referência: {opcao.texto}
-                    </option>
-                  ))}
-                </select>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-48 overflow-y-auto p-2 border border-gray-200 rounded-xl bg-gray-50/50 shadow-inner">
+                  {carregandoPeriodos ? (
+                    <div className="col-span-full flex justify-center py-6 text-amber-600">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600 mr-2"></div>
+                      <span className="text-sm font-bold">Verificando banco...</span>
+                    </div>
+                  ) : (
+                    gerarOpcoesPeriodo(servidorParaPassivo.dataAdmissao).map((opcao) => {
+                      const isSelecionado = periodosSelecionados.includes(opcao.valorEnvio);
+                      // MUDANÇA: Verifica se o período já está no banco de dados
+                      const isJaRegistrado = periodosJaRegistrados.includes(opcao.valorEnvio);
+                      
+                      return (
+                        <button
+                          key={opcao.valorEnvio}
+                          type="button"
+                          disabled={isJaRegistrado} // Bloqueia o clique se já existir
+                          onClick={() => togglePeriodo(opcao.valorEnvio)}
+                          title={isJaRegistrado ? "Período já cadastrado no sistema" : "Clique para selecionar"}
+                          className={`flex items-center justify-center p-3 rounded-lg text-sm font-bold transition-all border-2
+                            ${isJaRegistrado 
+                              ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-70' // Estilo Bloqueado
+                              : isSelecionado 
+                                ? 'bg-amber-100 border-amber-500 text-amber-800 shadow-sm transform scale-[1.02]' 
+                                : 'bg-white border-gray-200 text-gray-600 hover:border-amber-300 hover:bg-amber-50'
+                            }`}
+                        >
+                          {opcao.texto}
+                          {isJaRegistrado && <Check size={14} className="ml-1.5 opacity-60" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                
+                <p className="text-xs text-gray-500 mt-2 font-medium">
+                  {periodosSelecionados.length} período(s) novo(s) selecionado(s) para registro.
+                </p>
               </div>
             </div>
 
@@ -305,11 +370,11 @@ export function QuadroLotacao() {
               </button>
               <button 
                 onClick={salvarPassivo}
-                disabled={!anoSelecionado}
+                disabled={salvandoPassivo || periodosSelecionados.length === 0 || carregandoPeriodos}
                 className="px-6 py-2.5 text-sm font-bold text-white bg-amber-600 rounded-xl hover:bg-amber-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-amber-500/30 flex items-center gap-2"
               >
                 <History size={16} />
-                Confirmar Inclusão
+                {salvandoPassivo ? 'Registrando...' : 'Confirmar Inclusão'}
               </button>
             </div>
 

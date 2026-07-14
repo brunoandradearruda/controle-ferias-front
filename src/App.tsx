@@ -3,13 +3,15 @@ import { TabelaFerias } from './components/TabelaFerias';
 import { FormularioFerias } from './components/FormularioFerias';
 import { FormularioServidor } from './components/FormularioServidor';
 import { QuadroLotacao } from './components/QuadroLotacao';
+import { PainelRiscoFerias } from './components/PainelRiscoFerias'; // <-- NOVO: Importando o painel de risco
 import { 
   LayoutDashboard, 
   CalendarDays, 
   FilePlus, 
   UserPlus, 
   Building2, 
-  LogOut 
+  LogOut,
+  ShieldAlert // <-- NOVO: Ícone de alerta para o menu
 } from 'lucide-react';
 
 export default function App() {
@@ -21,6 +23,8 @@ export default function App() {
     switch (telaAtiva) {
       case 'painel':
         return <TabelaFerias />;
+      case 'painel_risco': // <-- NOVO: Rota para o painel de risco
+        return <PainelRiscoFerias />;
       case 'solicitar_ferias':
         return <FormularioFerias />;
       case 'cadastrar_servidor':
@@ -60,6 +64,18 @@ export default function App() {
           >
             <CalendarDays size={20} />
             Painel de Férias
+          </button>
+
+          {/* Item NOVO: Painel de Risco (Art. 79) */}
+          <button
+            onClick={() => setTelaAtiva('painel_risco')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
+              ${telaAtiva === 'painel_risco' 
+                ? 'bg-red-600 text-white shadow-md' // Destacado em vermelho quando ativo
+                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
+          >
+            <ShieldAlert size={20} className={telaAtiva !== 'painel_risco' ? "text-red-400" : ""} />
+            Painel de Risco
           </button>
 
           {/* Item 2: Lançar Novo Pedido de Férias */}
@@ -116,6 +132,7 @@ export default function App() {
         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 shadow-sm flex-shrink-0">
           <h2 className="text-gray-700 font-semibold text-lg">
             {telaAtiva === 'painel' && 'Gestão de Solicitações e Relatórios'}
+            {telaAtiva === 'painel_risco' && 'Auditoria de Férias e Risco Legal (Art. 79)'}
             {telaAtiva === 'solicitar_ferias' && 'Lançar Pedido de Férias'}
             {telaAtiva === 'cadastrar_servidor' && 'Inclusão de Novo Servidor'}
             {telaAtiva === 'lotacao' && 'Visão Executiva de Pessoal'}
