@@ -3,46 +3,36 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '../services/api';
 import { useEffect, useState } from 'react';
-import { CalendarPlus, Send, Calculator, Info, AlertCircle, CalendarDays, ArrowRight, History, Palmtree, Coins } from 'lucide-react';
+import { Calculator, AlertCircle, CalendarDays, ArrowRight, History, Palmtree, Coins, Loader2, Info } from 'lucide-react';
 
 // =====================================================================
-// 1. O SCHEMA INTELIGENTE (Cruza as validações de Modalidade e Data)
+// 1. O SCHEMA INTELIGENTE (Sem o coerce para evitar erro do TypeScript)
 // =====================================================================
 const formSchema = z.object({
   periodoId: z.number({ message: "Selecione um período aquisitivo" }).min(1, "Selecione um período aquisitivo"),
-  isRetroativo: z.boolean(), // <-- REMOVIDO o .default()
-  modalidade: z.enum(['GOZO', 'INDENIZACAO']), // <-- REMOVIDO o .default()
+  isRetroativo: z.boolean(), 
+  modalidade: z.enum(['GOZO', 'INDENIZACAO']), 
   dataInicioGozo: z.string().optional().or(z.literal('')),
   diasSolicitados: z.number({ message: "Informe um número válido" }).min(1, "Mínimo de 1 dia").max(40, "Máximo de 40 dias"),
   numeroPbdoc: z.string().min(3, "Informe o número do processo PBDOC válido")
 }).superRefine((data, ctx) => {
-  // Regras aplicáveis APENAS se for GOZO (Descanso)
   if (data.modalidade === 'GOZO') {
     if (!data.dataInicioGozo) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "A data de início é obrigatória",
-        path: ["dataInicioGozo"]
-      });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A data de início é obrigatória", path: ["dataInicioGozo"] });
       return;
     }
-
- const hoje = new Date().toISOString().split('T')[0];
-    
-    // Se NÃO for retroativo e a data for menor que hoje, gera o erro
+    const hoje = new Date().toISOString().split('T')[0];
     if (!data.isRetroativo && data.dataInicioGozo < hoje) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "A data não pode ser retroativa. Ative o 'Registro Histórico' acima.",
-        path: ["dataInicioGozo"]
-      });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A data não pode ser retroativa. Ative o 'Registro Histórico'.", path: ["dataInicioGozo"] });
     }
   }
 });
 type FormularioData = z.infer<typeof formSchema>;
 
 export function FormularioFerias() {
+  const [servidores, setServidores] = useState<any[]>([]);
   const [periodos, setPeriodos] = useState<any[]>([]);
+  const [carregandoPeriodos, setCarregandoPeriodos] = useState(false);
   const [servidorSelecionadoId, setServidorSelecionadoId] = useState<number | ''>('');
 
   const { register, handleSubmit, watch, formState: { errors }, reset, setValue } = useForm<FormularioData>({
@@ -55,67 +45,66 @@ export function FormularioFerias() {
   const diasSolicitados = watch('diasSolicitados');
   const isRetroativoAtivo = watch('isRetroativo');
   const modalidadeSelecionada = watch('modalidade');
+  
+  const servidorAtual = servidores.find(s => s.id === servidorSelecionadoId);
+  const ehOperadorRaioX = servidorAtual?.operadorRaioX;
 
-  const periodoAtual = periodos.find(p => p.id === periodoSelecionadoId);
-  const ehOperadorRaioX = periodoAtual?.servidor?.operadorRaioX;
+  // Comparação estrita apenas pelo ID verdadeiro (convertido para String para evitar bugs de tipo)
+  const periodoAtual = periodos.find(p => String(p.id) === String(periodoSelecionadoId));
 
   useEffect(() => {
-    api.get('/periodos')
-      .then(response => setPeriodos(response.data))
-      .catch(error => console.error("Erro ao buscar períodos:", error));
+    api.get('/servidores')
+      .then(response => setServidores(response.data))
+      .catch(error => console.error("Erro ao buscar servidores:", error));
   }, []);
 
-  const classificarStatusPeriodo = (dataFimString: string) => {
-    if (!dataFimString) return { texto: "Disponível", classe: "text-green-700 bg-green-100 border-green-200", badge: "🟢" };
-
-    const dataFim = new Date(dataFimString);
-    const hoje = new Date();
-
-    const dataLimiteGozo = new Date(dataFim);
-    dataLimiteGozo.setMonth(dataLimiteGozo.getMonth() + 12);
-
-    const dataAvisoVencendo = new Date(dataLimiteGozo);
-    dataAvisoVencendo.setMonth(dataAvisoVencendo.getMonth() - 1);
-
-    if (hoje > dataLimiteGozo) {
-      return { 
-        texto: "Acumulada / Vencida", 
-        classe: "text-red-700 bg-red-100 border-red-200",
-        badge: "🔴",
-        aviso: "🚨 ATENÇÃO: Este passivo ultrapassou o limite legal. Uso prioritário obrigatório!"
-      };
-    } else if (hoje >= dataAvisoVencendo && hoje <= dataLimiteGozo) {
-      return { 
-        texto: "Vencendo (Art. 79)", 
-        classe: "text-yellow-700 bg-yellow-100 border-yellow-200",
-        badge: "🟡",
-        aviso: "⚠️ ATENÇÃO (Art. 79, § 3º): Este período atingiu o 23º mês. A concessão é obrigatória e imediata."
-      };
+  useEffect(() => {
+    if (servidorSelecionadoId) {
+      setCarregandoPeriodos(true);
+      api.get(`/servidores/${servidorSelecionadoId}/periodos-disponiveis`)
+        .then(response => {
+          setPeriodos(response.data);
+          setValue('periodoId', '' as any); // Reseta a seleção visualmente
+        })
+        .catch(error => console.error("Erro ao carregar períodos:", error))
+        .finally(() => setCarregandoPeriodos(false));
     } else {
-      return { 
-        texto: "Disponível", 
-        classe: "text-green-700 bg-green-100 border-green-200",
-        badge: "🟢",
-        aviso: null
-      };
+      setPeriodos([]);
+      setValue('periodoId', '' as any);
     }
-  };
+  }, [servidorSelecionadoId, setValue]);
 
-  const periodosComSaldo = periodos.filter((p) => p.saldoDias > 0);
-  const servidoresUnicos = Array.from(new Map(periodosComSaldo.map((p) => [p.servidor?.id, p.servidor])).values());
-  const periodosDoServidor = periodosComSaldo.filter((p) => p.servidor?.id === servidorSelecionadoId);
+  const getBadgeStatus = (statusTexto: string) => {
+    if (statusTexto === "Acumulada / Vencida") return { badge: "🔴", classe: "text-red-700 bg-red-100" };
+    if (statusTexto === "Vencendo (Art. 79)") return { badge: "🟡", classe: "text-yellow-700 bg-yellow-100" };
+    return { badge: "🟢", classe: "text-green-700 bg-green-100" };
+  };
 
   const calcularDataExata = (dataString: string, diasSomar: number = 0) => {
     if (!dataString) return '';
-    const [ano, mes, dia] = dataString.split('-').map(Number);
+    const dataLimpa = dataString.substring(0, 10);
+    const [ano, mes, dia] = dataLimpa.split('-').map(Number);
     const dataCalculada = new Date(ano, mes - 1, dia);
     dataCalculada.setDate(dataCalculada.getDate() + diasSomar);
     return dataCalculada.toLocaleDateString('pt-BR');
   };
 
+  const obterJanelaConcessiva = (dataFimString: string) => {
+    if (!dataFimString) return null;
+    const dataLimpa = dataFimString.substring(0, 10);
+    const [ano, mes, dia] = dataLimpa.split('-').map(Number);
+    
+    const inicio = new Date(ano, mes - 1, dia + 1);
+    const fim = new Date(ano + 1, mes - 1, dia);
+    
+    return {
+      inicio: inicio.toLocaleDateString('pt-BR'),
+      fim: fim.toLocaleDateString('pt-BR')
+    };
+  };
+
   const diasMath = Number(diasSolicitados) || 0;
   
-  // Lógica dinâmica para o Resumo
   const dataFimPreview = modalidadeSelecionada === 'INDENIZACAO' 
     ? 'Não se aplica (Pecúnia)' 
     : (dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, diasMath - 1) : '--/--/----');
@@ -132,8 +121,8 @@ export function FormularioFerias() {
 
     try {
       await api.post(`/periodos/${data.periodoId}/solicitacoes`, {
-        modalidade: data.modalidade, // <-- Enviando Modalidade pro Java
-        dataInicioGozo: data.modalidade === 'GOZO' ? data.dataInicioGozo : null, // Indenização envia nulo
+        modalidade: data.modalidade, 
+        dataInicioGozo: data.modalidade === 'GOZO' ? data.dataInicioGozo : null, 
         diasSolicitados: data.diasSolicitados,
         numeroPbdoc: data.numeroPbdoc,
         abonoPecuniario: false,
@@ -154,7 +143,6 @@ export function FormularioFerias() {
   return (
     <div className="max-w-5xl bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mt-2">
       
-      {/* CABEÇALHO DINÂMICO */}
       <div className={`px-8 py-7 text-white transition-colors duration-500 ${isRetroativoAtivo ? 'bg-gradient-to-r from-amber-700 to-orange-600' : 'bg-gradient-to-r from-blue-700 to-indigo-600'}`}>
         <h2 className="text-2xl font-bold flex items-center gap-2">
           {isRetroativoAtivo ? <History className="text-amber-100" size={28} /> : <CalendarDays className="text-blue-100" size={28} />}
@@ -167,7 +155,6 @@ export function FormularioFerias() {
 
       <form onSubmit={handleSubmit(salvarSolicitacao)} className="p-8">
         
-        {/* TOGGLE MODO RETROATIVO */}
         <div className={`flex items-center justify-between p-4 mb-8 rounded-xl border transition-all duration-300 ${isRetroativoAtivo ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${isRetroativoAtivo ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>
@@ -185,7 +172,6 @@ export function FormularioFerias() {
           </label>
         </div>
 
-        {/* LAYOUT DE DUAS COLUNAS */}
         <div className="flex flex-col lg:flex-row gap-10">
           
           <div className="flex-1 space-y-7">
@@ -195,14 +181,11 @@ export function FormularioFerias() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">1. Selecione o Servidor</label>
               <select 
                 value={servidorSelecionadoId}
-                onChange={(e) => {
-                  setServidorSelecionadoId(Number(e.target.value));
-                  setValue('periodoId', 0 as any); 
-                }}
+                onChange={(e) => setServidorSelecionadoId(Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 cursor-pointer"
               >
                 <option value="">-- Busque e Selecione um Servidor --</option>
-                {servidoresUnicos.map((servidor) => (
+                {servidores.map((servidor) => (
                   <option key={servidor?.id} value={servidor?.id}>
                     {servidor?.nome} (Mat: {servidor?.matricula || '-'}) {servidor?.operadorRaioX ? '☢️' : ''}
                   </option>
@@ -210,43 +193,59 @@ export function FormularioFerias() {
               </select>
             </div>
 
-            {/* 2º DROPDOWN: SELECIONAR O PERÍODO */}
+            {/* 2º DROPDOWN: SELECIONAR O PERÍODO INTELIGENTE */}
             {servidorSelecionadoId !== '' && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">2. Selecione o Período Aquisitivo</label>
                 
-                {periodosDoServidor.length > 0 ? (
-                  <>
-                    <select 
-                      {...register('periodoId', { valueAsNumber: true })}
-                      className="w-full border border-emerald-300 rounded-xl p-3.5 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 bg-emerald-50/30 hover:bg-emerald-50/70 outline-none transition-all duration-200 cursor-pointer"
-                    >
-                      <option value="">-- Selecione o Período --</option>
-                      {periodosDoServidor.map((p) => {
-                        const statusInfo = classificarStatusPeriodo(p.dataFim);
-                        const anoInicio = new Date(p.dataInicio).getFullYear();
-                        const anoFim = new Date(p.dataFim).getFullYear();
-                        const textoRef = anoInicio === anoFim ? anoFim : `${anoInicio}/${anoFim}`;
-
-                        return (
-                          <option key={p.id} value={p.id}>
-                            Ref: {textoRef} — (Saldo: {p.saldoDias} dias) {statusInfo.badge} {statusInfo.texto}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {errors.periodoId && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.periodoId.message}</span>}
-                  </>
+                {carregandoPeriodos ? (
+                  <div className="w-full border border-gray-200 rounded-xl p-3.5 bg-gray-50 flex items-center gap-3 text-blue-600 font-bold">
+                    <Loader2 className="animate-spin" size={20} />
+                    Calculando passivo e regras...
+                  </div>
                 ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 shadow-sm mt-1">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
-                      <div>
-                        <strong className="block mb-1 text-base">Nenhum período com saldo disponível.</strong>
-                        <p className="text-sm leading-relaxed font-medium">Vá até a tela Quadro de Lotação e clique no botão Passivo.</p>
+                  periodos.length > 0 ? (
+                    <>
+                      <select 
+                        {...register('periodoId', { valueAsNumber: true })} // <-- ADICIONADO AQUI
+                        className="w-full border border-emerald-300 rounded-xl p-3.5 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 bg-emerald-50/30 hover:bg-emerald-50/70 outline-none transition-all duration-200 cursor-pointer"
+                      >
+                        <option value="">-- Selecione o Período --</option>
+                        {periodos.map((p) => {
+                          const statusInfo = getBadgeStatus(p.status);
+                          return (
+                            <option key={p.id} value={p.id}>
+                              Ref: {p.referencia} — (Saldo: {p.saldoDias} dias) {statusInfo.badge} {p.status}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {errors.periodoId && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.periodoId.message}</span>}
+                      
+                      {/* === O ALERTA AUXILIAR === */}
+                      {periodoAtual && (
+                        <div className="mt-4 bg-sky-50 border border-sky-200 rounded-xl p-4 text-sm shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                          <Info className="text-sky-600 shrink-0 mt-0.5" size={24} />
+                          <div>
+                            <strong className="block text-base text-sky-900 mb-1">Período Concessivo</strong>
+                            <p className="text-sky-800 font-medium leading-relaxed">
+                              Para o período selecionado, o servidor pode gozar férias entre <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{obterJanelaConcessiva(periodoAtual.dataFim)?.inicio}</strong> e <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{obterJanelaConcessiva(periodoAtual.dataFim)?.fim}</strong>.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 shadow-sm mt-1">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                        <div>
+                          <strong className="block mb-1 text-base">Nenhum período com saldo disponível.</strong>
+                          <p className="text-sm leading-relaxed font-medium">O motor de cálculo não encontrou férias pendentes para este servidor baseadas na data de admissão e no registro de gozos e afastamentos anteriores.</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )
                 )}
               </div>
             )}
@@ -293,7 +292,7 @@ export function FormularioFerias() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Dias Solicitados</label>
                 <input 
                   type="number" 
-                  {...register('diasSolicitados', { valueAsNumber: true })}
+                  {...register('diasSolicitados', { valueAsNumber: true })} // <-- ADICIONADO AQUI TAMBÉM
                   className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200"
                 />
                 {errors.diasSolicitados && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.diasSolicitados.message}</span>}

@@ -3,7 +3,8 @@ import { TabelaFerias } from './components/TabelaFerias';
 import { FormularioFerias } from './components/FormularioFerias';
 import { FormularioServidor } from './components/FormularioServidor';
 import { QuadroLotacao } from './components/QuadroLotacao';
-import { PainelRiscoFerias } from './components/PainelRiscoFerias'; // <-- NOVO: Importando o painel de risco
+import { PainelRiscoFerias } from './components/PainelRiscoFerias'; 
+import { DashboardHome } from './components/DashboardHome'; // <-- NOVO: Importando o Dashboard
 import { 
   LayoutDashboard, 
   CalendarDays, 
@@ -11,19 +12,22 @@ import {
   UserPlus, 
   Building2, 
   LogOut,
-  ShieldAlert // <-- NOVO: Ícone de alerta para o menu
+  ShieldAlert,
+  PieChart // <-- NOVO: Ícone para o menu do Dashboard
 } from 'lucide-react';
 
 export default function App() {
-  // Estado que controla qual tela está ativa. Começamos pelo 'painel'
-  const [telaAtiva, setTelaAtiva] = useState('painel');
+  // Estado que controla qual tela está ativa. Começamos pelo 'inicio' (Dashboard)
+  const [telaAtiva, setTelaAtiva] = useState('inicio');
 
   // Função que decide qual componente renderizar no lado direito
   const renderizarTela = () => {
     switch (telaAtiva) {
+      case 'inicio': // <-- NOVO: Rota para o Dashboard
+        return <DashboardHome />;
       case 'painel':
         return <TabelaFerias />;
-      case 'painel_risco': // <-- NOVO: Rota para o painel de risco
+      case 'painel_risco': 
         return <PainelRiscoFerias />;
       case 'solicitar_ferias':
         return <FormularioFerias />;
@@ -32,7 +36,7 @@ export default function App() {
       case 'lotacao':
         return <QuadroLotacao />;
       default:
-        return <TabelaFerias />;
+        return <DashboardHome />;
     }
   };
 
@@ -54,6 +58,18 @@ export default function App() {
         {/* Menu de Navegação Interativo */}
         <nav className="flex-1 px-4 py-6 space-y-2">
           
+          {/* Item NOVO: Dashboard Executivo */}
+          <button
+            onClick={() => setTelaAtiva('inicio')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
+              ${telaAtiva === 'inicio' 
+                ? 'bg-indigo-700 text-white shadow-md' 
+                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
+          >
+            <PieChart size={20} />
+            Visão Executiva
+          </button>
+
           {/* Item 1: Painel Geral de Pedidos */}
           <button
             onClick={() => setTelaAtiva('painel')}
@@ -66,19 +82,19 @@ export default function App() {
             Painel de Férias
           </button>
 
-          {/* Item NOVO: Painel de Risco (Art. 79) */}
+          {/* Item 2: Painel de Risco (Art. 79) */}
           <button
             onClick={() => setTelaAtiva('painel_risco')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
               ${telaAtiva === 'painel_risco' 
-                ? 'bg-red-600 text-white shadow-md' // Destacado em vermelho quando ativo
+                ? 'bg-red-600 text-white shadow-md' 
                 : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
           >
             <ShieldAlert size={20} className={telaAtiva !== 'painel_risco' ? "text-red-400" : ""} />
             Painel de Risco
           </button>
 
-          {/* Item 2: Lançar Novo Pedido de Férias */}
+          {/* Item 3: Lançar Novo Pedido de Férias */}
           <button
             onClick={() => setTelaAtiva('solicitar_ferias')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
@@ -90,7 +106,7 @@ export default function App() {
             Solicitar Férias
           </button>
 
-          {/* Item 3: Adicionar Novo Servidor ao Banco */}
+          {/* Item 4: Adicionar Novo Servidor ao Banco */}
           <button
             onClick={() => setTelaAtiva('cadastrar_servidor')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
@@ -102,7 +118,7 @@ export default function App() {
             Cadastrar Servidor
           </button>
 
-          {/* Item 4: Visão de Lotações e Desligamento */}
+          {/* Item 5: Visão de Lotações e Desligamento */}
           <button
             onClick={() => setTelaAtiva('lotacao')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
@@ -131,6 +147,7 @@ export default function App() {
         {/* Cabeçalho Fixo Superior */}
         <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 shadow-sm flex-shrink-0">
           <h2 className="text-gray-700 font-semibold text-lg">
+            {telaAtiva === 'inicio' && 'Painel Gerencial e Estatísticas'}
             {telaAtiva === 'painel' && 'Gestão de Solicitações e Relatórios'}
             {telaAtiva === 'painel_risco' && 'Auditoria de Férias e Risco Legal (Art. 79)'}
             {telaAtiva === 'solicitar_ferias' && 'Lançar Pedido de Férias'}

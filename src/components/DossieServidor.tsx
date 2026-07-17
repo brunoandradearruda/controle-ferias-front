@@ -1,15 +1,25 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { History, CalendarDays, CheckCircle, FileText, Clock, AlertTriangle, X, Coins } from 'lucide-react';
+import { History, CalendarDays, CheckCircle, FileText, Clock, AlertTriangle, X, Coins, Printer } from 'lucide-react';
+import { gerarRequerimentoFerias } from '../utils/geradorPdfRequerimento'; // <-- IMPORT DO GERADOR DE PDF
 
 interface DossieProps {
   servidorId: number;
   nomeServidor: string;
   matricula: string;
+  cargo?: string;     // <-- Adicionado para o PDF
+  lotacao?: string;   // <-- Adicionado para o PDF
   onClose: () => void;
 }
 
-export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }: DossieProps) {
+export function DossieServidor({ 
+  servidorId, 
+  nomeServidor, 
+  matricula, 
+  cargo = 'Servidor Público Estadual', // <-- Valor padrão caso não seja passado
+  lotacao = 'SEPLAG',                  // <-- Valor padrão caso não seja passado
+  onClose 
+}: DossieProps) {
   const [periodos, setPeriodos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -113,7 +123,6 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
                         {periodo.solicitacoes && periodo.solicitacoes.length > 0 ? (
                           <div className="space-y-2.5">
                             {periodo.solicitacoes.map((sol: any, idx: number) => {
-                              // ---> REGRA VISUAL: VERIFICA SE FOI INDENIZADO <---
                               const isIndenizacao = sol.modalidade === 'INDENIZACAO';
 
                               return (
@@ -137,11 +146,36 @@ export function DossieServidor({ servidorId, nomeServidor, matricula, onClose }:
                                     </div>
                                   </div>
                                   
-                                  <div className="text-right">
-                                    <span className="inline-block px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black text-slate-500 shadow-sm uppercase">
-                                      {sol.status}
-                                    </span>
-                                    {sol.numeroPbdoc && <p className="text-[9px] text-slate-400 font-bold mt-0.5 uppercase tracking-tight">Processo: {sol.numeroPbdoc}</p>}
+                                  {/* ---> CONJUNTO DE AÇÕES E STATUS (COM O NOVO BOTÃO DE PDF) <--- */}
+                                  <div className="flex items-center gap-4">
+                                    
+                                    {/* Botão de Imprimir PDF do PBDoc */}
+                                    {!isIndenizacao && (sol.status === 'APROVADA' || sol.status === 'PENDENTE_CHEFIA') && (
+                                      <button
+                                        onClick={() => gerarRequerimentoFerias(
+                                          nomeServidor,
+                                          matricula,
+                                          cargo,
+                                          lotacao,
+                                          periodo.anoReferencia,
+                                          sol.dataInicioGozo,
+                                          sol.diasSolicitados,
+                                          sol.abonoPecuniario
+                                        )}
+                                        title="Gerar Requerimento Padrão para o PBDoc"
+                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-200 transition-all"
+                                      >
+                                        <Printer size={18} />
+                                      </button>
+                                    )}
+
+                                    <div className="text-right">
+                                      <span className="inline-block px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black text-slate-500 shadow-sm uppercase">
+                                        {sol.status}
+                                      </span>
+                                      {sol.numeroPbdoc && <p className="text-[9px] text-slate-400 font-bold mt-0.5 uppercase tracking-tight">Processo: {sol.numeroPbdoc}</p>}
+                                    </div>
+
                                   </div>
                                 </div>
                               );
