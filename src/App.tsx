@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { Toaster } from 'react-hot-toast'; 
 import { TabelaFerias } from './components/TabelaFerias';
 import { FormularioFerias } from './components/FormularioFerias';
 import { FormularioServidor } from './components/FormularioServidor';
 import { QuadroLotacao } from './components/QuadroLotacao';
 import { PainelRiscoFerias } from './components/PainelRiscoFerias'; 
-import { DashboardHome } from './components/DashboardHome'; // <-- NOVO: Importando o Dashboard
+import { DashboardHome } from './components/DashboardHome'; 
 import { 
   LayoutDashboard, 
   CalendarDays, 
@@ -13,160 +14,176 @@ import {
   Building2, 
   LogOut,
   ShieldAlert,
-  PieChart // <-- NOVO: Ícone para o menu do Dashboard
+  PieChart,
+  ChevronLeft,
+  ChevronRight,
+  UserCircle
 } from 'lucide-react';
 
 export default function App() {
-  // Estado que controla qual tela está ativa. Começamos pelo 'inicio' (Dashboard)
   const [telaAtiva, setTelaAtiva] = useState('inicio');
+  const [sidebarExpandida, setSidebarExpandida] = useState(true);
 
-  // Função que decide qual componente renderizar no lado direito
   const renderizarTela = () => {
     switch (telaAtiva) {
-      case 'inicio': // <-- NOVO: Rota para o Dashboard
-        return <DashboardHome />;
-      case 'painel':
-        return <TabelaFerias />;
-      case 'painel_risco': 
-        return <PainelRiscoFerias />;
-      case 'solicitar_ferias':
-        return <FormularioFerias />;
-      case 'cadastrar_servidor':
-        return <FormularioServidor />;
-      case 'lotacao':
-        return <QuadroLotacao />;
-      default:
-        return <DashboardHome />;
+      case 'inicio': return <DashboardHome />;
+      case 'painel': return <TabelaFerias />;
+      case 'painel_risco': return <PainelRiscoFerias />;
+      case 'solicitar_ferias': return <FormularioFerias />;
+      case 'cadastrar_servidor': return <FormularioServidor />;
+      case 'lotacao': return <QuadroLotacao />;
+      default: return <DashboardHome />;
     }
   };
 
+  const renderizarMenuItem = (id: string, Icone: any, texto: string, extraClasses: string = "") => {
+    const isAtivo = telaAtiva === id;
+    return (
+      <button
+        onClick={() => setTelaAtiva(id)}
+        title={!sidebarExpandida ? texto : ""}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group
+          ${sidebarExpandida ? 'justify-start' : 'justify-center'}
+          ${isAtivo 
+            ? 'bg-indigo-50 text-indigo-700 shadow-sm font-bold' 
+            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium'
+          } ${extraClasses}`}
+      >
+        <Icone 
+          size={20} 
+          className={`shrink-0 transition-colors duration-200 
+            ${isAtivo ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-500'}`} 
+        />
+        {sidebarExpandida && (
+          <span className="truncate whitespace-nowrap">{texto}</span>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
       
-      {/* ================= BARRA LATERAL (SIDEBAR) ================= */}
-      <aside className="w-64 bg-indigo-900 text-white flex flex-col shadow-xl z-10 hidden md:flex">
-        
-        {/* Cabeçalho / Logo do Sistema */}
-        <div className="p-6 flex flex-col items-center border-b border-indigo-800">
-          <div className="bg-white p-3 rounded-full mb-3 shadow-sm">
-            <LayoutDashboard className="text-indigo-900" size={28} />
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: { fontWeight: 'bold', borderRadius: '12px' },
+          success: { style: { background: '#ecfdf5', color: '#047857', border: '1px solid #10b981' } },
+          error: { style: { background: '#fef2f2', color: '#b91c1c', border: '1px solid #ef4444' } },
+        }}
+      />
+
+      {/* ================= BARRA LATERAL (SIDEBAR MODERNA LIGHT) ================= */}
+      <aside 
+        className={`bg-white border-r border-slate-200 flex flex-col z-20 transition-all duration-300 ease-in-out hidden md:flex relative
+          ${sidebarExpandida ? 'w-64' : 'w-20'}
+        `}
+      >
+        {/* Botão Flutuante para Encolher/Expandir */}
+        <button 
+          onClick={() => setSidebarExpandida(!sidebarExpandida)}
+          className="absolute -right-3 top-7 bg-white border border-slate-200 shadow-sm p-1 rounded-full text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all z-50"
+        >
+          {sidebarExpandida ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
+
+        {/* Logo Section */}
+        <div className="h-20 flex items-center justify-center border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-600 p-2 rounded-xl shadow-sm shadow-indigo-200">
+              <LayoutDashboard className="text-white" size={24} />
+            </div>
+            {sidebarExpandida && (
+              <div className="flex flex-col animate-in fade-in duration-300">
+                <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none mt-1">SEPLAG PB</h1>
+                <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">Férias</p>
+              </div>
+            )}
           </div>
-          <h1 className="text-xl font-bold tracking-wide">SEPLAG PB</h1>
-          <p className="text-indigo-300 text-xs mt-1 font-medium">Controle de Férias</p>
         </div>
 
-        {/* Menu de Navegação Interativo */}
-        <nav className="flex-1 px-4 py-6 space-y-2">
+        {/* Navigation Sections */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
           
-          {/* Item NOVO: Dashboard Executivo */}
-          <button
-            onClick={() => setTelaAtiva('inicio')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'inicio' 
-                ? 'bg-indigo-700 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <PieChart size={20} />
-            Visão Executiva
-          </button>
+          {/* Seção: GERENCIAL */}
+          <div>
+            {sidebarExpandida && <p className="px-3 text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Gerencial</p>}
+            <div className="space-y-1">
+              {renderizarMenuItem('inicio', PieChart, 'Visão Executiva')}
+              {renderizarMenuItem('lotacao', Building2, 'Quadro de Lotação')}
+            </div>
+          </div>
 
-          {/* Item 1: Painel Geral de Pedidos */}
-          <button
-            onClick={() => setTelaAtiva('painel')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'painel' 
-                ? 'bg-indigo-700 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <CalendarDays size={20} />
-            Painel de Férias
-          </button>
+          {/* Seção: OPERAÇÃO & RISCO */}
+          <div>
+            {sidebarExpandida && <p className="px-3 text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Operação</p>}
+            <div className="space-y-1">
+              {renderizarMenuItem('painel', CalendarDays, 'Painel de Férias')}
+              
+              {/* O Painel de Risco recebe uma cor diferenciada */}
+              {renderizarMenuItem('painel_risco', ShieldAlert, 'Auditoria de Risco', telaAtiva !== 'painel_risco' ? 'hover:bg-red-50 hover:text-red-700' : 'bg-red-50 text-red-700')}
+            </div>
+          </div>
 
-          {/* Item 2: Painel de Risco (Art. 79) */}
-          <button
-            onClick={() => setTelaAtiva('painel_risco')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'painel_risco' 
-                ? 'bg-red-600 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <ShieldAlert size={20} className={telaAtiva !== 'painel_risco' ? "text-red-400" : ""} />
-            Painel de Risco
-          </button>
-
-          {/* Item 3: Lançar Novo Pedido de Férias */}
-          <button
-            onClick={() => setTelaAtiva('solicitar_ferias')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'solicitar_ferias' 
-                ? 'bg-indigo-700 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <FilePlus size={20} />
-            Solicitar Férias
-          </button>
-
-          {/* Item 4: Adicionar Novo Servidor ao Banco */}
-          <button
-            onClick={() => setTelaAtiva('cadastrar_servidor')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'cadastrar_servidor' 
-                ? 'bg-indigo-700 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <UserPlus size={20} />
-            Cadastrar Servidor
-          </button>
-
-          {/* Item 5: Visão de Lotações e Desligamento */}
-          <button
-            onClick={() => setTelaAtiva('lotacao')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm
-              ${telaAtiva === 'lotacao' 
-                ? 'bg-indigo-700 text-white shadow-md' 
-                : 'text-indigo-200 hover:bg-indigo-800 hover:text-white'}`}
-          >
-            <Building2 size={20} />
-            Quadro de Lotação
-          </button>
+          {/* Seção: LANÇAMENTOS */}
+          <div>
+            {sidebarExpandida && <p className="px-3 text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Lançamentos</p>}
+            <div className="space-y-1">
+              {renderizarMenuItem('solicitar_ferias', FilePlus, 'Agendar Férias')}
+              {renderizarMenuItem('cadastrar_servidor', UserPlus, 'Novo Servidor')}
+            </div>
+          </div>
 
         </nav>
 
-        {/* Rodapé da Sidebar */}
-        <div className="p-4 border-t border-indigo-800">
-          <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-indigo-300 hover:text-white hover:bg-indigo-800 rounded-lg transition-colors text-sm font-medium">
-            <LogOut size={18} />
-            Sair do Sistema
+        {/* Rodapé da Sidebar (User Mini-Profile & Logout) */}
+        <div className="p-4 border-t border-slate-100 shrink-0">
+          <button className={`w-full flex items-center justify-center gap-2 p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-red-600 transition-colors font-medium text-sm group ${sidebarExpandida ? 'justify-start' : 'justify-center'}`}>
+            <LogOut size={20} className="group-hover:text-red-500 transition-colors" />
+            {sidebarExpandida && <span>Sair do Sistema</span>}
           </button>
         </div>
       </aside>
 
       {/* ================= ÁREA DE CONTEÚDO (DIREITA) ================= */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50/50">
         
-        {/* Cabeçalho Fixo Superior */}
-        <header className="bg-white h-16 border-b border-gray-200 flex items-center justify-between px-8 shadow-sm flex-shrink-0">
-          <h2 className="text-gray-700 font-semibold text-lg">
-            {telaAtiva === 'inicio' && 'Painel Gerencial e Estatísticas'}
-            {telaAtiva === 'painel' && 'Gestão de Solicitações e Relatórios'}
-            {telaAtiva === 'painel_risco' && 'Auditoria de Férias e Risco Legal (Art. 79)'}
-            {telaAtiva === 'solicitar_ferias' && 'Lançar Pedido de Férias'}
-            {telaAtiva === 'cadastrar_servidor' && 'Inclusão de Novo Servidor'}
-            {telaAtiva === 'lotacao' && 'Visão Executiva de Pessoal'}
-          </h2>
+        {/* Cabeçalho Superior Minimalista */}
+        <header className="bg-white/80 backdrop-blur-md h-20 border-b border-slate-200 flex items-center justify-between px-8 shrink-0 z-10 sticky top-0">
           
-          {/* Perfil fictício do usuário logado */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex justify-center items-center text-indigo-700 font-bold text-sm">
-              RH
+          <div>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+              {telaAtiva === 'inicio' && 'Visão Executiva'}
+              {telaAtiva === 'painel' && 'Painel de Férias'}
+              {telaAtiva === 'painel_risco' && 'Auditoria de Risco (Art. 79)'}
+              {telaAtiva === 'solicitar_ferias' && 'Agendamento de Férias'}
+              {telaAtiva === 'cadastrar_servidor' && 'Cadastro de Servidor'}
+              {telaAtiva === 'lotacao' && 'Quadro de Lotação'}
+            </h2>
+            <p className="text-sm font-medium text-slate-500 mt-0.5">
+              {telaAtiva === 'inicio' && 'Métricas e acompanhamento geral do efetivo.'}
+              {telaAtiva === 'painel' && 'Consulte as solicitações e histórico da folha.'}
+              {telaAtiva === 'solicitar_ferias' && 'Preencha os dados para uma nova concessão.'}
+              {telaAtiva === 'painel_risco' && 'Atenção aos prazos fatais iminentes.'}
+            </p>
+          </div>
+          
+          {/* Perfil Pílula Flutuante */}
+          <div className="flex items-center gap-3 bg-white border border-slate-200 shadow-sm py-1.5 px-2 rounded-full cursor-pointer hover:shadow-md transition-all">
+            <div className="w-8 h-8 rounded-full bg-indigo-50 flex justify-center items-center">
+              <UserCircle size={20} className="text-indigo-600" />
             </div>
-            <span className="text-sm font-medium text-gray-600 hidden sm:block">Recursos Humanos</span>
+            <div className="hidden sm:block pr-3">
+              <span className="block text-xs font-bold text-slate-700 leading-none">Bruno Arruda</span>
+              <span className="block text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wide">CGGP</span>
+            </div>
           </div>
         </header>
 
-        {/* Conteúdo Dinâmico (Rolagem independente) */}
+        {/* Conteúdo Dinâmico */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="max-w-7xl mx-auto">
+          <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
             {renderizarTela()}
           </div>
         </div>
