@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import Select from 'react-select'; 
 
 // =====================================================================
-// 1. O SCHEMA INTELIGENTE 
+// 1. O SCHEMA INTELIGENTE (Trava contra Histórico no Futuro)
 // =====================================================================
 const formSchema = z.object({
   periodoId: z.number({ message: "Selecione um período aquisitivo" }).min(1, "Selecione um período aquisitivo"),
@@ -24,8 +24,15 @@ const formSchema = z.object({
       return;
     }
     const hoje = new Date().toISOString().split('T')[0];
+    
+    // REGRA 1: Agendamento NORMAL não pode ser no passado
     if (!data.isRetroativo && data.dataInicioGozo < hoje) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A data não pode ser retroativa. Ative o 'Registro Histórico'.", path: ["dataInicioGozo"] });
+    }
+
+    // REGRA 2: Agendamento RETROATIVO não pode ser no futuro
+    if (data.isRetroativo && data.dataInicioGozo > hoje) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Um registro histórico não pode ocorrer no futuro.", path: ["dataInicioGozo"] });
     }
   }
 });
@@ -37,7 +44,8 @@ export function FormularioFerias() {
   const [carregandoPeriodos, setCarregandoPeriodos] = useState(false);
   const [servidorSelecionadoId, setServidorSelecionadoId] = useState<number | ''>('');
 
-  const { register, handleSubmit, watch, formState: { errors }, reset, setValue } = useForm<FormularioData>({
+  // Adicionamos o setError para poder pintar os campos de vermelho manualmente na validação extra
+  const { register, handleSubmit, watch, formState: { errors }, reset, setValue, setError } = useForm<FormularioData>({
     resolver: zodResolver(formSchema),
     defaultValues: { isRetroativo: false, modalidade: 'GOZO' }
   });
@@ -96,18 +104,44 @@ export function FormularioFerias() {
     return dataCalculada.toLocaleDateString('pt-BR');
   };
 
-  const obterJanelaConcessiva = (dataFimString: string) => {
-    if (!dataFimString) return null;
-    const dataLimpa = dataFimString.substring(0, 10);
-    const [ano, mes, dia] = dataLimpa.split('-').map(Number);
+  // =====================================================================
+  // MOTOR ESTATUTÁRIO (ART 79)
+  // =====================================================================
+  const calcularJanelasEstatutarias = (periodo: any, servidor: any) => {
+    if (!periodo || !servidor || !servidor.dataAdmissao) return null;
+
+    const dataLimpa = servidor.dataAdmissao.substring(0, 10);
+    const [anoAdm, mesAdm, diaAdm] = dataLimpa.split('-').map(Number);
+
+    let anoBase = periodo.anoReferencia;
+    if (!anoBase && periodo.referencia && typeof periodo.referencia === 'string') {
+      const partes = periodo.referencia.split('/');
+      if (partes.length === 2) anoBase = parseInt(partes[1], 10);
+    }
     
-    const inicio = new Date(ano, mes - 1, dia + 1);
-    const fim = new Date(ano + 1, mes - 1, dia);
-    
-    return {
-      inicio: inicio.toLocaleDateString('pt-BR'),
-      fim: fim.toLocaleDateString('pt-BR')
+    if (!anoBase) return null;
+
+    const inicioConc = new Date(anoBase, mesAdm - 1, diaAdm);
+    const fimConc = new Date(anoBase + 2, mesAdm - 1, diaAdm - 1);
+
+    const formatarData = (d: Date) => {
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     };
+
+    return {
+      concInicio: formatarData(inicioConc),
+      concFim: formatarData(fimConc)
+    };
+  };
+
+  const corrigirReferenciaEstatutaria = (p: any) => {
+    if (p.referencia && typeof p.referencia === 'string' && p.referencia.includes('/')) {
+      const [ano1, ano2] = p.referencia.split('/');
+      if (ano1 === ano2) return `${ano1}/${parseInt(ano1) + 1}`;
+      return p.referencia;
+    }
+    if (p.anoReferencia) return `${p.anoReferencia - 1}/${p.anoReferencia}`;
+    return 'N/A';
   };
 
   const diasMath = Number(diasSolicitados) || 0;
@@ -124,6 +158,37 @@ export function FormularioFerias() {
     if (ehOperadorRaioX && data.diasSolicitados !== 20) {
       toast.error("Servidores de Raios X devem tirar exatamente 20 dias por semestre.", { icon: '☢️' });
       return;
+    }
+
+    // =====================================================================
+    // TRAVA DE SEGURANÇA FINAL: Validação estrita da Janela Concessiva
+    // =====================================================================
+    if (data.modalidade === 'GOZO' && data.dataInicioGozo && periodoAtual && servidorAtual) {
+      const janelas = calcularJanelasEstatutarias(periodoAtual, servidorAtual);
+      
+      if (janelas) {
+        // Função auxiliar para transformar "DD/MM/YYYY" em "YYYY-MM-DD" e permitir comparação matemática
+        const formatarParaISO = (dataBR: string) => {
+          const [d, m, a] = dataBR.split('/');
+          return `${a}-${m}-${d}`;
+        };
+
+        const limiteInicioISO = formatarParaISO(janelas.concInicio);
+        const limiteFimISO = formatarParaISO(janelas.concFim);
+
+        // Verifica se a data solicitada tenta "burlar" os limites
+        if (data.dataInicioGozo < limiteInicioISO) {
+          setError('dataInicioGozo', { type: 'manual', message: `Data não pode ser anterior a ${janelas.concInicio}` });
+          toast.error("Operação barrada: Data inferior ao início do período concessivo.");
+          return; // Para a função aqui e não salva no banco
+        }
+
+        if (data.dataInicioGozo > limiteFimISO) {
+          setError('dataInicioGozo', { type: 'manual', message: `Data excede o limite legal de ${janelas.concFim} (Art 79)` });
+          toast.error("Operação barrada: Data excede o limite máximo de 24 meses do Estatuto.");
+          return; // Para a função aqui e não salva no banco
+        }
+      }
     }
 
     const toastId = toast.loading("Salvando solicitação...");
@@ -153,9 +218,6 @@ export function FormularioFerias() {
     }
   };
 
-  // =====================================================================
-  // PREPARAÇÃO DOS DADOS PARA O REACT-SELECT E ESTILOS CUSTOMIZADOS
-  // =====================================================================
   const opcoesServidores = servidores.map((servidor) => ({
     value: servidor.id,
     label: `${servidor.nome} (Mat: ${servidor.matricula || '-'}) ${servidor.operadorRaioX ? '☢️' : ''}`
@@ -164,7 +226,7 @@ export function FormularioFerias() {
   const estilosCustomizadosSelect = {
     control: (provided: any, state: any) => ({
       ...provided,
-      minHeight: '52px', // Deixando o campo na mesma proporção dos outros
+      minHeight: '52px',
       borderRadius: '0.75rem', 
       borderColor: state.isFocused ? '#3b82f6' : '#d1d5db', 
       boxShadow: state.isFocused ? '0 0 0 4px rgba(59, 130, 246, 0.2)' : 'none',
@@ -233,12 +295,8 @@ export function FormularioFerias() {
 
         <div className="flex flex-col lg:flex-row gap-10">
           
-          {/* ================================================================= */}
-          {/* COLUNA ESQUERDA: CAMPOS DO FORMULÁRIO */}
-          {/* ================================================================= */}
           <div className="flex-1 space-y-7">
             
-            {/* 1º DROPDOWN: SELECIONAR SERVIDOR SEMPRE VISÍVEL */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">1. Selecione o Servidor</label>
               <Select
@@ -253,11 +311,9 @@ export function FormularioFerias() {
               />
             </div>
 
-            {/* O RESTANTE DO FORMULÁRIO SÓ APARECE SE UM SERVIDOR ESTIVER SELECIONADO */}
             {servidorSelecionadoId !== '' ? (
               <div className="space-y-7 animate-in fade-in slide-in-from-top-4 duration-500">
                 
-                {/* 2º DROPDOWN: PERÍODO INTELIGENTE */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">2. Selecione o Período Aquisitivo</label>
                   {carregandoPeriodos ? (
@@ -275,9 +331,11 @@ export function FormularioFerias() {
                           <option value="">-- Selecione o Período --</option>
                           {periodos.map((p) => {
                             const statusInfo = getBadgeStatus(p.status);
+                            const refCorrigida = corrigirReferenciaEstatutaria(p);
+                            
                             return (
                               <option key={p.id} value={p.id}>
-                                Ref: {p.referencia} — (Saldo: {p.saldoDias} dias) {statusInfo.badge} {p.status}
+                                Ref: {refCorrigida} — (Saldo: {p.saldoDias} dias) {statusInfo.badge} {p.status}
                               </option>
                             );
                           })}
@@ -288,9 +346,12 @@ export function FormularioFerias() {
                           <div className="mt-4 bg-sky-50 border border-sky-200 rounded-xl p-4 text-sm shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
                             <Info className="text-sky-600 shrink-0 mt-0.5" size={24} />
                             <div>
-                              <strong className="block text-base text-sky-900 mb-1">Período Concessivo</strong>
-                              <p className="text-sky-800 font-medium leading-relaxed">
-                                Para o período selecionado, o servidor pode gozar férias entre <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{obterJanelaConcessiva(periodoAtual.dataFim)?.inicio}</strong> e <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{obterJanelaConcessiva(periodoAtual.dataFim)?.fim}</strong>.
+                              <strong className="block text-base text-sky-900 mb-1">Período Concessivo (Art. 79, § 2º e § 3º)</strong>
+                              <p className="text-sky-800 font-medium leading-relaxed mt-1">
+                                O servidor possui até 24 meses após a aquisição para gozar esse período, podendo agendar férias entre <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concInicio}</strong> e <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concFim}</strong>.
+                              </p>
+                              <p className="text-sky-700 text-xs font-bold mt-2">
+                                Atenção: No 23º mês, a concessão do gozo será obrigatória.
                               </p>
                             </div>
                           </div>
@@ -310,7 +371,6 @@ export function FormularioFerias() {
                   )}
                 </div>
 
-                {/* 3º MODALIDADE */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">3. Natureza do Lançamento</label>
                   <div className="grid grid-cols-2 gap-3">
@@ -333,7 +393,6 @@ export function FormularioFerias() {
                   </div>
                 </div>
 
-                {/* DATAS E DIAS */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Data de Início do Gozo</label>
@@ -343,6 +402,7 @@ export function FormularioFerias() {
                       {...register('dataInicioGozo')}
                       className={`w-full border rounded-xl p-3.5 focus:ring-4 outline-none transition-all duration-200 ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : (isRetroativoAtivo ? 'bg-amber-50 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500' : 'bg-gray-50 border-gray-300 focus:ring-blue-500/20 focus:border-blue-500 hover:bg-white')}`}
                     />
+                    {/* Exibe o erro visual de limite excedido logo abaixo do calendário */}
                     {errors.dataInicioGozo && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.dataInicioGozo.message}</span>}
                   </div>
 
@@ -357,7 +417,6 @@ export function FormularioFerias() {
                   </div>
                 </div>
 
-                {/* AVISO ARTIGO 80 */}
                 {ehOperadorRaioX && (
                   <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-800 text-sm font-medium shadow-sm flex gap-3 items-center">
                     <span className="text-xl">☢️</span> 
@@ -365,7 +424,6 @@ export function FormularioFerias() {
                   </div>
                 )}
 
-                {/* PBDOC */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Número do PBDOC (Autorização)</label>
                   <input 
@@ -378,7 +436,6 @@ export function FormularioFerias() {
                 </div>
               </div>
             ) : (
-              /* PLACEHOLDER ELEGANTE QUANDO NÃO HÁ SERVIDOR SELECIONADO */
               <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-12 flex flex-col items-center justify-center text-center text-gray-400 animate-in fade-in duration-500">
                 <div className="bg-gray-100 p-4 rounded-full mb-4">
                   <Search size={32} className="text-gray-400" />
@@ -389,9 +446,6 @@ export function FormularioFerias() {
             )}
           </div>
 
-          {/* ================================================================= */}
-          {/* COLUNA DIREITA: RESUMO E BOTÃO DE SALVAR */}
-          {/* ================================================================= */}
           <div className="w-full lg:w-80 shrink-0">
             <div className="sticky top-6 space-y-5">
               
@@ -427,10 +481,10 @@ export function FormularioFerias() {
 
               <button 
                 type="submit" 
-                disabled={servidorSelecionadoId === ''} // Desabilita o botão se não houver servidor
+                disabled={servidorSelecionadoId === ''} 
                 className={`w-full text-white font-bold py-4 px-4 rounded-xl transition-all duration-200 shadow-lg flex items-center justify-center gap-2 outline-none focus:ring-4 
                   ${servidorSelecionadoId === '' 
-                    ? 'bg-gray-300 cursor-not-allowed shadow-none text-gray-500' // Visual inativo
+                    ? 'bg-gray-300 cursor-not-allowed shadow-none text-gray-500' 
                     : isRetroativoAtivo 
                       ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 focus:ring-amber-500/30 hover:shadow-amber-500/30 transform hover:-translate-y-0.5' 
                       : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:ring-blue-500/30 hover:shadow-blue-500/30 transform hover:-translate-y-0.5'
