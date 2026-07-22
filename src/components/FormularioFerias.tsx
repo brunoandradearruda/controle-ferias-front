@@ -7,9 +7,6 @@ import { Calculator, AlertCircle, CalendarDays, ArrowRight, History, Palmtree, C
 import { toast } from 'react-hot-toast';
 import Select from 'react-select'; 
 
-// =====================================================================
-// 1. O SCHEMA INTELIGENTE (Trava contra Histórico no Futuro)
-// =====================================================================
 const formSchema = z.object({
   periodoId: z.number({ message: "Selecione um período aquisitivo" }).min(1, "Selecione um período aquisitivo"),
   isRetroativo: z.boolean(), 
@@ -23,14 +20,22 @@ const formSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A data de início é obrigatória", path: ["dataInicioGozo"] });
       return;
     }
+
+    // =====================================================================
+    // NOVO: Trava de segurança para impedir anos com mais de 4 dígitos
+    // =====================================================================
+    const anoInformado = data.dataInicioGozo.split('-')[0];
+    if (anoInformado && anoInformado.length > 4) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "O ano deve conter no máximo 4 dígitos.", path: ["dataInicioGozo"] });
+      return;
+    }
+
     const hoje = new Date().toISOString().split('T')[0];
     
-    // REGRA 1: Agendamento NORMAL não pode ser no passado
     if (!data.isRetroativo && data.dataInicioGozo < hoje) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A data não pode ser retroativa. Ative o 'Registro Histórico'.", path: ["dataInicioGozo"] });
     }
 
-    // REGRA 2: Agendamento RETROATIVO não pode ser no futuro
     if (data.isRetroativo && data.dataInicioGozo > hoje) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Um registro histórico não pode ocorrer no futuro.", path: ["dataInicioGozo"] });
     }
@@ -44,7 +49,6 @@ export function FormularioFerias() {
   const [carregandoPeriodos, setCarregandoPeriodos] = useState(false);
   const [servidorSelecionadoId, setServidorSelecionadoId] = useState<number | ''>('');
 
-  // Adicionamos o setError para poder pintar os campos de vermelho manualmente na validação extra
   const { register, handleSubmit, watch, formState: { errors }, reset, setValue, setError } = useForm<FormularioData>({
     resolver: zodResolver(formSchema),
     defaultValues: { isRetroativo: false, modalidade: 'GOZO' }
@@ -58,7 +62,6 @@ export function FormularioFerias() {
   
   const servidorAtual = servidores.find(s => s.id === servidorSelecionadoId);
   const ehOperadorRaioX = servidorAtual?.operadorRaioX;
-
   const periodoAtual = periodos.find(p => String(p.id) === String(periodoSelecionadoId));
 
   useEffect(() => {
@@ -90,9 +93,9 @@ export function FormularioFerias() {
   }, [servidorSelecionadoId, setValue]);
 
   const getBadgeStatus = (statusTexto: string) => {
-    if (statusTexto === "Acumulada / Vencida") return { badge: "🔴", classe: "text-red-700 bg-red-100" };
-    if (statusTexto === "Vencendo (Art. 79)") return { badge: "🟡", classe: "text-yellow-700 bg-yellow-100" };
-    return { badge: "🟢", classe: "text-green-700 bg-green-100" };
+    if (statusTexto === "Acumulada / Vencida") return { badge: "🔴", classe: "text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-md text-xs" };
+    if (statusTexto === "Vencendo (Art. 79)") return { badge: "🟡", classe: "text-yellow-700 bg-yellow-100 border border-yellow-200 px-2 py-0.5 rounded-md text-xs" };
+    return { badge: "🟢", classe: "text-green-700 bg-green-100 border border-green-200 px-2 py-0.5 rounded-md text-xs" };
   };
 
   const calcularDataExata = (dataString: string, diasSomar: number = 0) => {
@@ -104,9 +107,6 @@ export function FormularioFerias() {
     return dataCalculada.toLocaleDateString('pt-BR');
   };
 
-  // =====================================================================
-  // MOTOR ESTATUTÁRIO (ART 79)
-  // =====================================================================
   const calcularJanelasEstatutarias = (periodo: any, servidor: any) => {
     if (!periodo || !servidor || !servidor.dataAdmissao) return null;
 
@@ -128,10 +128,7 @@ export function FormularioFerias() {
       return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     };
 
-    return {
-      concInicio: formatarData(inicioConc),
-      concFim: formatarData(fimConc)
-    };
+    return { concInicio: formatarData(inicioConc), concFim: formatarData(fimConc) };
   };
 
   const corrigirReferenciaEstatutaria = (p: any) => {
@@ -160,14 +157,10 @@ export function FormularioFerias() {
       return;
     }
 
-    // =====================================================================
-    // TRAVA DE SEGURANÇA FINAL: Validação estrita da Janela Concessiva
-    // =====================================================================
     if (data.modalidade === 'GOZO' && data.dataInicioGozo && periodoAtual && servidorAtual) {
       const janelas = calcularJanelasEstatutarias(periodoAtual, servidorAtual);
       
       if (janelas) {
-        // Função auxiliar para transformar "DD/MM/YYYY" em "YYYY-MM-DD" e permitir comparação matemática
         const formatarParaISO = (dataBR: string) => {
           const [d, m, a] = dataBR.split('/');
           return `${a}-${m}-${d}`;
@@ -176,17 +169,16 @@ export function FormularioFerias() {
         const limiteInicioISO = formatarParaISO(janelas.concInicio);
         const limiteFimISO = formatarParaISO(janelas.concFim);
 
-        // Verifica se a data solicitada tenta "burlar" os limites
         if (data.dataInicioGozo < limiteInicioISO) {
           setError('dataInicioGozo', { type: 'manual', message: `Data não pode ser anterior a ${janelas.concInicio}` });
           toast.error("Operação barrada: Data inferior ao início do período concessivo.");
-          return; // Para a função aqui e não salva no banco
+          return; 
         }
 
         if (data.dataInicioGozo > limiteFimISO) {
           setError('dataInicioGozo', { type: 'manual', message: `Data excede o limite legal de ${janelas.concFim} (Art 79)` });
           toast.error("Operação barrada: Data excede o limite máximo de 24 meses do Estatuto.");
-          return; // Para a função aqui e não salva no banco
+          return; 
         }
       }
     }
@@ -226,79 +218,82 @@ export function FormularioFerias() {
   const estilosCustomizadosSelect = {
     control: (provided: any, state: any) => ({
       ...provided,
-      minHeight: '52px',
-      borderRadius: '0.75rem', 
-      borderColor: state.isFocused ? '#3b82f6' : '#d1d5db', 
-      boxShadow: state.isFocused ? '0 0 0 4px rgba(59, 130, 246, 0.2)' : 'none',
-      backgroundColor: state.isFocused ? '#ffffff' : '#f9fafb',
+      minHeight: '42px', 
+      borderRadius: '0.5rem', 
+      borderColor: state.isFocused ? '#005aa9' : '#cbd5e1', 
+      boxShadow: state.isFocused ? '0 0 0 3px rgba(0, 90, 169, 0.15)' : 'none',
+      backgroundColor: state.isFocused ? '#ffffff' : '#f8fafc',
       cursor: 'text',
       transition: 'all 0.2s ease',
+      fontSize: '0.875rem',
       '&:hover': {
         backgroundColor: '#ffffff'
       }
     }),
     menu: (provided: any) => ({
       ...provided,
-      borderRadius: '0.75rem',
+      borderRadius: '0.5rem',
       overflow: 'hidden',
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-      zIndex: 50
+      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+      zIndex: 50,
+      border: '1px solid #e2e8f0'
     }),
     option: (provided: any, state: any) => ({
       ...provided,
-      backgroundColor: state.isSelected ? '#e0e7ff' : state.isFocused ? '#f3f4f6' : 'white',
-      color: state.isSelected ? '#3730a3' : '#374151',
+      backgroundColor: state.isSelected ? '#e0f2fe' : state.isFocused ? '#f1f5f9' : 'white',
+      color: state.isSelected ? '#005aa9' : '#334155',
       cursor: 'pointer',
-      padding: '0.75rem 1rem',
+      padding: '0.5rem 0.75rem',
+      fontSize: '0.875rem',
       fontWeight: state.isSelected ? 'bold' : 'normal',
       '&:active': {
-        backgroundColor: '#c7d2fe'
+        backgroundColor: '#bae6fd'
       }
     }),
     placeholder: (provided: any) => ({
       ...provided,
-      color: '#9ca3af'
+      color: '#94a3b8'
     })
   };
 
   return (
-    <div className="max-w-5xl bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mt-2">
+    <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-8">
       
-      <div className={`px-8 py-7 text-white transition-colors duration-500 ${isRetroativoAtivo ? 'bg-gradient-to-r from-amber-700 to-orange-600' : 'bg-gradient-to-r from-blue-700 to-indigo-600'}`}>
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          {isRetroativoAtivo ? <History className="text-amber-100" size={28} /> : <CalendarDays className="text-blue-100" size={28} />}
+      <div className={`px-8 py-6 text-white transition-colors duration-500 ${isRetroativoAtivo ? 'bg-amber-600' : 'bg-[#005aa9]'}`}>
+        <h2 className="text-2xl font-black flex items-center gap-2 tracking-tight">
+          {isRetroativoAtivo ? <History className="text-amber-100" size={24} /> : <CalendarDays className="text-blue-100" size={24} />}
           {isRetroativoAtivo ? 'Lançamento de Histórico (Passivo)' : 'Agendamento de Férias'}
         </h2>
-        <p className={`text-sm mt-2 font-medium ${isRetroativoAtivo ? 'text-amber-100' : 'text-blue-100/90'}`}>
+        <p className={`text-sm mt-1.5 font-medium ${isRetroativoAtivo ? 'text-amber-100' : 'text-blue-100/90'}`}>
           {isRetroativoAtivo ? 'Modo restrito para inserção de férias de anos anteriores já gozadas.' : 'Preencha os dados abaixo para registrar uma nova concessão no sistema.'}
         </p>
       </div>
 
       <form onSubmit={handleSubmit(salvarSolicitacao)} className="p-8">
         
-        <div className={`flex items-center justify-between p-4 mb-8 rounded-xl border transition-all duration-300 ${isRetroativoAtivo ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
+        <div className={`flex items-center justify-between p-3.5 mb-8 rounded-lg border transition-all duration-300 ${isRetroativoAtivo ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-slate-50 border-slate-200'}`}>
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isRetroativoAtivo ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>
-              <History size={20} />
+            <div className={`p-2 rounded-md ${isRetroativoAtivo ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-500'}`}>
+              <History size={18} />
             </div>
             <div>
-              <p className={`text-sm font-bold ${isRetroativoAtivo ? 'text-amber-900' : 'text-gray-700'}`}>Registro Histórico (Datas Passadas)</p>
-              <p className="text-xs font-medium text-gray-500 mt-0.5">Ative essa chave APENAS se o servidor JÁ GOZOU estas férias no passado.</p>
+              <p className={`text-sm font-bold ${isRetroativoAtivo ? 'text-amber-900' : 'text-slate-700'}`}>Registro Histórico (Datas Passadas)</p>
+              <p className="text-xs font-medium text-slate-500 mt-0.5">Ative essa chave APENAS se o servidor JÁ GOZOU estas férias no passado.</p>
             </div>
           </div>
           
           <label className="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" className="sr-only peer" {...register('isRetroativo')} />
-            <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
           </label>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-10">
           
-          <div className="flex-1 space-y-7">
+          <div className="flex-1 space-y-6">
             
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">1. Selecione o Servidor</label>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">1. Selecione o Servidor</label>
               <Select
                 options={opcoesServidores}
                 value={opcoesServidores.find(op => op.value === servidorSelecionadoId) || null}
@@ -312,21 +307,21 @@ export function FormularioFerias() {
             </div>
 
             {servidorSelecionadoId !== '' ? (
-              <div className="space-y-7 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
                 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">2. Selecione o Período Aquisitivo</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">2. Selecione o Período Aquisitivo</label>
                   {carregandoPeriodos ? (
-                    <div className="w-full border border-gray-200 rounded-xl p-3.5 bg-gray-50 flex items-center gap-3 text-blue-600 font-bold">
-                      <Loader2 className="animate-spin" size={20} />
-                      Calculando passivo e regras...
+                    <div className="w-full border border-slate-200 rounded-lg p-3 bg-slate-50 flex items-center gap-3 text-[#005aa9] font-bold text-sm">
+                      <Loader2 className="animate-spin" size={18} />
+                      Calculando passivo e regras estatutárias...
                     </div>
                   ) : (
                     periodos.length > 0 ? (
                       <>
                         <select 
                           {...register('periodoId', { valueAsNumber: true })}
-                          className="w-full border border-emerald-300 rounded-xl p-3.5 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 bg-emerald-50/30 hover:bg-emerald-50/70 outline-none transition-all duration-200 cursor-pointer"
+                          className="w-full border border-[#005aa9]/30 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/15 focus:border-[#005aa9] bg-[#005aa9]/5 hover:bg-[#005aa9]/10 outline-none transition-all duration-200 cursor-pointer text-slate-800 font-medium text-sm"
                         >
                           <option value="">-- Selecione o Período --</option>
                           {periodos.map((p) => {
@@ -335,22 +330,22 @@ export function FormularioFerias() {
                             
                             return (
                               <option key={p.id} value={p.id}>
-                                Ref: {refCorrigida} — (Saldo: {p.saldoDias} dias) {statusInfo.badge} {p.status}
+                                Ref: {refCorrigida} — (Saldo: {p.saldoDias} dias) &nbsp;&nbsp; {statusInfo.badge} {p.status}
                               </option>
                             );
                           })}
                         </select>
-                        {errors.periodoId && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.periodoId.message}</span>}
+                        {errors.periodoId && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.periodoId.message}</span>}
                         
                         {periodoAtual && (
-                          <div className="mt-4 bg-sky-50 border border-sky-200 rounded-xl p-4 text-sm shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
-                            <Info className="text-sky-600 shrink-0 mt-0.5" size={24} />
+                          <div className="mt-3 bg-[#005aa9]/5 border border-[#005aa9]/20 rounded-lg p-3.5 text-sm shadow-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                            <Info className="text-[#005aa9] shrink-0 mt-0.5" size={20} />
                             <div>
-                              <strong className="block text-base text-sky-900 mb-1">Período Concessivo (Art. 79, § 2º e § 3º)</strong>
-                              <p className="text-sky-800 font-medium leading-relaxed mt-1">
-                                O servidor possui até 24 meses após a aquisição para gozar esse período, podendo agendar férias entre <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concInicio}</strong> e <strong className="text-sky-900 bg-sky-200/50 px-1.5 py-0.5 rounded">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concFim}</strong>.
+                              <strong className="block text-sm text-[#005aa9] mb-1">Período Concessivo (Art. 79, § 2º e § 3º)</strong>
+                              <p className="text-slate-700 font-medium text-xs leading-relaxed">
+                                O servidor possui até 24 meses após a aquisição para gozar esse período, podendo agendar férias entre <strong className="text-[#005aa9] bg-[#005aa9]/10 px-1.5 py-0.5 rounded border border-[#005aa9]/20">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concInicio}</strong> e <strong className="text-[#005aa9] bg-[#005aa9]/10 px-1.5 py-0.5 rounded border border-[#005aa9]/20">{calcularJanelasEstatutarias(periodoAtual, servidorAtual)?.concFim}</strong>.
                               </p>
-                              <p className="text-sky-700 text-xs font-bold mt-2">
+                              <p className="text-[#005aa9] text-[10px] font-bold mt-2 bg-[#005aa9]/10 inline-block px-2 py-1 rounded uppercase tracking-wider">
                                 Atenção: No 23º mês, a concessão do gozo será obrigatória.
                               </p>
                             </div>
@@ -358,12 +353,12 @@ export function FormularioFerias() {
                         )}
                       </>
                     ) : (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 shadow-sm mt-1">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-sm text-amber-800 shadow-sm mt-1">
                         <div className="flex items-start gap-3">
                           <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
                           <div>
-                            <strong className="block mb-1 text-base">Nenhum período com saldo disponível.</strong>
-                            <p className="text-sm leading-relaxed font-medium">O motor de cálculo não encontrou férias pendentes para este servidor baseadas na data de admissão e no registro de gozos e afastamentos anteriores.</p>
+                            <strong className="block mb-1 text-sm">Nenhum período com saldo disponível.</strong>
+                            <p className="text-xs leading-relaxed font-medium">O motor de cálculo não encontrou férias pendentes para este servidor baseadas na data de admissão e no registro de gozos e afastamentos anteriores.</p>
                           </div>
                         </div>
                       </div>
@@ -372,12 +367,12 @@ export function FormularioFerias() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">3. Natureza do Lançamento</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">3. Natureza do Lançamento</label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => setValue('modalidade', 'GOZO', { shouldValidate: true })}
-                      className={`flex items-center justify-center gap-2 p-3.5 rounded-xl font-bold text-sm border transition-all ${modalidadeSelecionada === 'GOZO' ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                      className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-bold text-sm border transition-all ${modalidadeSelecionada === 'GOZO' ? 'bg-[#005aa9]/10 border-[#005aa9]/30 text-[#005aa9] shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                     >
                       <Palmtree size={18} />
                       ⛱️ Gozo de Férias
@@ -385,7 +380,7 @@ export function FormularioFerias() {
                     <button
                       type="button"
                       onClick={() => { setValue('modalidade', 'INDENIZACAO', { shouldValidate: true }); setValue('dataInicioGozo', ''); }}
-                      className={`flex items-center justify-center gap-2 p-3.5 rounded-xl font-bold text-sm border transition-all ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                      className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-bold text-sm border transition-all ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                     >
                       <Coins size={18} />
                       💰 Indenização (Pecúnia)
@@ -393,86 +388,86 @@ export function FormularioFerias() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Data de Início do Gozo</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">Data de Início do Gozo</label>
                     <input 
                       type="date" 
+                      max="9999-12-31" /* <=== TRAVA DE 4 DÍGITOS NO NAVEGADOR */
                       disabled={modalidadeSelecionada === 'INDENIZACAO'}
                       {...register('dataInicioGozo')}
-                      className={`w-full border rounded-xl p-3.5 focus:ring-4 outline-none transition-all duration-200 ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : (isRetroativoAtivo ? 'bg-amber-50 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500' : 'bg-gray-50 border-gray-300 focus:ring-blue-500/20 focus:border-blue-500 hover:bg-white')}`}
+                      className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 text-slate-800 font-medium text-sm ${modalidadeSelecionada === 'INDENIZACAO' ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : (isRetroativoAtivo ? 'bg-amber-50 border-amber-300 focus:ring-amber-500/20 focus:border-amber-500' : 'bg-slate-50 border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] hover:bg-white')}`}
                     />
-                    {/* Exibe o erro visual de limite excedido logo abaixo do calendário */}
                     {errors.dataInicioGozo && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.dataInicioGozo.message}</span>}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Dias Solicitados</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">Dias Solicitados</label>
                     <input 
                       type="number" 
                       {...register('diasSolicitados', { valueAsNumber: true })}
-                      className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200"
+                      className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 text-slate-800 font-medium text-sm"
                     />
-                    {errors.diasSolicitados && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.diasSolicitados.message}</span>}
+                    {errors.diasSolicitados && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.diasSolicitados.message}</span>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">Número do PBDOC</label>
+                    <input 
+                      type="text" 
+                      placeholder="EX: SEP-PRC-2026/01"
+                      {...register('numeroPbdoc')}
+                      className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm"
+                    />
+                    {errors.numeroPbdoc && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.numeroPbdoc.message}</span>}
                   </div>
                 </div>
 
                 {ehOperadorRaioX && (
-                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-800 text-sm font-medium shadow-sm flex gap-3 items-center">
-                    <span className="text-xl">☢️</span> 
+                  <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-amber-800 text-xs font-medium shadow-sm flex gap-3 items-center">
+                    <span className="text-lg">☢️</span> 
                     <p><strong>Atenção ao Art. 80:</strong> Servidor opera com Raios X. O período deve ser obrigatoriamente de <strong>20 dias</strong>.</p>
                   </div>
                 )}
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Número do PBDOC (Autorização)</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: SEPLAG-PRC-2026/01234"
-                    {...register('numeroPbdoc')}
-                    className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 uppercase"
-                  />
-                  {errors.numeroPbdoc && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.numeroPbdoc.message}</span>}
-                </div>
               </div>
             ) : (
-              <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-12 flex flex-col items-center justify-center text-center text-gray-400 animate-in fade-in duration-500">
-                <div className="bg-gray-100 p-4 rounded-full mb-4">
-                  <Search size={32} className="text-gray-400" />
+              <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-10 flex flex-col items-center justify-center text-center text-slate-400 animate-in fade-in duration-500">
+                <div className="bg-slate-100 p-4 rounded-full mb-4">
+                  <Search size={32} className="text-slate-400" />
                 </div>
-                <h4 className="font-bold text-gray-500 mb-1 text-base">Aguardando Seleção</h4>
+                <h4 className="font-bold text-slate-500 mb-1 text-base">Aguardando Seleção</h4>
                 <p className="text-sm font-medium">Busque e selecione um servidor acima para liberar<br />as regras de negócio e os próximos passos do agendamento.</p>
               </div>
             )}
           </div>
 
-          <div className="w-full lg:w-80 shrink-0">
-            <div className="sticky top-6 space-y-5">
+          <div className="w-full lg:w-[360px] xl:w-[400px] shrink-0">
+            <div className="sticky top-6 space-y-4">
               
-              <div className={`p-6 rounded-2xl border transition-all duration-300 shadow-sm ${(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 && servidorSelecionadoId !== '' ? (isRetroativoAtivo ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-200') : 'bg-gray-50 border-gray-200'}`}>
-                <h3 className="text-sm font-bold flex items-center gap-2 mb-6 text-gray-800 border-b border-gray-200/60 pb-3">
-                  <Calculator size={18} className={(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 && servidorSelecionadoId !== '' ? (isRetroativoAtivo ? 'text-amber-600' : 'text-indigo-600') : 'text-gray-400'} /> 
+              <div className={`p-6 rounded-xl border transition-all duration-300 shadow-sm ${(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 && servidorSelecionadoId !== '' ? (isRetroativoAtivo ? 'bg-amber-50 border-amber-200' : 'bg-[#005aa9]/5 border-[#005aa9]/20') : 'bg-slate-50 border-slate-200'}`}>
+                <h3 className="text-sm font-black flex items-center gap-2 mb-6 text-slate-800 border-b border-slate-200/80 pb-3">
+                  <Calculator size={18} className={(dataInicioGozo || modalidadeSelecionada === 'INDENIZACAO') && diasMath > 0 && servidorSelecionadoId !== '' ? (isRetroativoAtivo ? 'text-amber-600' : 'text-[#005aa9]') : 'text-slate-400'} /> 
                   Resumo do Agendamento
                 </h3>
                 
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Início</span>
-                    <span className={`text-sm font-black ${dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-blue-700' : 'text-gray-400'}`}>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Início</span>
+                    <span className={`text-sm font-black ${dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-[#005aa9]' : 'text-slate-400'}`}>
                       {modalidadeSelecionada === 'INDENIZACAO' || servidorSelecionadoId === '' ? '--/--/----' : (dataInicioGozo && diasMath > 0 ? calcularDataExata(dataInicioGozo, 0) : '--/--/----')}
                     </span>
                   </div>
                   
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Fim</span>
-                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-red-600' : 'text-gray-400')}`}>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Fim</span>
+                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-red-600' : 'text-slate-400')}`}>
                       {servidorSelecionadoId === '' ? '--/--/----' : dataFimPreview}
                     </span>
                   </div>
                   
-                  <div className="pt-3 border-t border-gray-200/60 flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Retorno</span>
-                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-1 rounded shadow-sm' : 'text-gray-400')}`}>
+                  <div className="pt-4 border-t border-slate-200/80 flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Retorno</span>
+                    <span className={`text-sm font-black ${modalidadeSelecionada === 'INDENIZACAO' ? 'text-amber-600 italic' : (dataInicioGozo && diasMath > 0 && servidorSelecionadoId !== '' ? 'text-emerald-700 bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-md shadow-sm' : 'text-slate-400')}`}>
                       {servidorSelecionadoId === '' ? '--/--/----' : dataRetornoPreview}
                     </span>
                   </div>
@@ -482,15 +477,15 @@ export function FormularioFerias() {
               <button 
                 type="submit" 
                 disabled={servidorSelecionadoId === ''} 
-                className={`w-full text-white font-bold py-4 px-4 rounded-xl transition-all duration-200 shadow-lg flex items-center justify-center gap-2 outline-none focus:ring-4 
+                className={`w-full text-white font-black py-3 px-4 rounded-xl transition-all duration-200 shadow-md flex items-center justify-center gap-2 outline-none focus:ring-4 text-sm
                   ${servidorSelecionadoId === '' 
-                    ? 'bg-gray-300 cursor-not-allowed shadow-none text-gray-500' 
+                    ? 'bg-slate-200 cursor-not-allowed shadow-none text-slate-400' 
                     : isRetroativoAtivo 
-                      ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 focus:ring-amber-500/30 hover:shadow-amber-500/30 transform hover:-translate-y-0.5' 
-                      : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:ring-blue-500/30 hover:shadow-blue-500/30 transform hover:-translate-y-0.5'
+                      ? 'bg-amber-600 hover:bg-amber-700 focus:ring-amber-500/30 transform hover:-translate-y-0.5' 
+                      : 'bg-[#005aa9] hover:bg-[#004785] focus:ring-[#005aa9]/30 transform hover:-translate-y-0.5'
                   }`}
               >
-                {isRetroativoAtivo ? 'Gravar Dossiê Histórico' : 'Confirmar Agendamento'}
+                {isRetroativoAtivo ? 'Gravar Dossiê' : 'Confirmar Agendamento'}
                 <ArrowRight size={18} />
               </button>
               

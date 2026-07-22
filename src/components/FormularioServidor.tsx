@@ -3,10 +3,32 @@ import type { SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '../services/api';
-import { UserPlus, Save } from 'lucide-react';
+import { UserPlus, Save, Info } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
+// =====================================================================
+// MÁSCARA NATIVA DE MATRÍCULA (Padrão Governo PB: XXX.XXX-X)
+// =====================================================================
+export const mascaraMatricula = (valor: string) => {
+  if (!valor) return '';
+  
+  // Remove tudo que não for número e limita a 7 caracteres
+  let v = valor.replace(/\D/g, '').substring(0, 7);
+  
+  // Aplica a formatação dinamicamente enquanto o usuário digita
+  v = v.replace(/(\d{3})(\d)/, '$1.$2');        // Coloca o ponto: 184.351
+  v = v.replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2-$3'); // Coloca o traço: 184.351-6
+  
+  return v;
+};
+
+// =====================================================================
+// SCHEMA INTELIGENTE (Agora exigindo a matrícula completa)
+// =====================================================================
 const servidorSchema = z.object({
-  matricula: z.string().min(1, "A matrícula é obrigatória"),
+  matricula: z.string()
+    .min(9, "A matrícula deve estar completa (Ex: 184.351-6)") // 9 caracteres contando pontos e traço
+    .regex(/^\d{3}\.\d{3}-\d$/, "Formato inválido. Use o padrão 000.000-0"),
   nome: z.string().min(3, "O nome deve ter no mínimo 3 letras"),
   cargo: z.string().min(1, "O cargo é obrigatório"),
   lotacao: z.string().min(1, "A lotação é obrigatória"),
@@ -33,114 +55,149 @@ export function FormularioServidor() {
   });
 
   const salvarServidor: SubmitHandler<ServidorData> = async (data) => {
+    const toastId = toast.loading("Salvando cadastro do servidor...");
+
     try {
       const dadosParaEnvio = { ...data, ativo: true }; 
       
       await api.post('/servidores', dadosParaEnvio);
       
-      alert('✅ Servidor cadastrado com sucesso! (Período aquisitivo gerado com base na admissão).');
+      toast.success('Servidor cadastrado com sucesso!', { id: toastId });
       reset();
     } catch (error) {
-      alert('❌ Erro ao cadastrar o servidor.');
+      toast.error('Erro ao cadastrar o servidor no banco de dados.', { id: toastId });
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mt-6">
+    <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-8">
       
-      {/* CABEÇALHO MODERNO */}
-      <div className="bg-gradient-to-r from-blue-700 to-indigo-600 px-8 py-7 text-white">
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          <UserPlus className="text-blue-100" size={28} />
+      {/* CABEÇALHO COM O AZUL OFICIAL DA PARAÍBA */}
+      <div className="bg-[#005aa9] px-8 py-6 text-white transition-colors duration-500">
+        <h2 className="text-2xl font-black flex items-center gap-2 tracking-tight">
+          <UserPlus className="text-blue-100" size={24} />
           Cadastrar Novo Servidor
         </h2>
-        <p className="text-blue-100/90 text-sm mt-2 font-medium">
+        <p className="text-blue-100/90 text-sm mt-1.5 font-medium">
           Insira as informações funcionais para integrar o servidor ao sistema de férias.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit(salvarServidor)} className="p-8">
+      <div className="flex flex-col xl:flex-row gap-10 p-8 md:p-10">
         
-        {/* GRID DE FORMULÁRIO INTELIGENTE */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* ================= COLUNA ESQUERDA (FORMULÁRIO) ================= */}
+        <form onSubmit={handleSubmit(salvarServidor)} className="flex-1 space-y-6">
           
-          {/* Nome (Ocupa as duas colunas por ser mais longo) */}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Nome Completo</label>
-            <input 
-              type="text" 
-              placeholder="Ex: Bruno Andrade de Arruda"
-              {...register('nome')}
-              className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 uppercase"
-            />
-            {errors.nome && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.nome.message}</span>}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div className="md:col-span-2">
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">Nome Completo</label>
+              <input 
+                type="text" 
+                placeholder="Ex: BRUNO ANDRADE DE ARRUDA"
+                {...register('nome')}
+                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm"
+              />
+              {errors.nome && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.nome.message}</span>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">Matrícula</label>
+              <input 
+                type="text" 
+                placeholder="Ex: 184.351-6"
+                {...register('matricula', {
+                  // Intercepta a digitação em tempo real e aplica a nossa máscara
+                  onChange: (e) => {
+                    e.target.value = mascaraMatricula(e.target.value);
+                  }
+                })}
+                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 text-slate-800 font-medium text-sm"
+              />
+              {errors.matricula && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.matricula.message}</span>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">Data de Admissão (Posse)</label>
+              <input 
+                type="date" 
+                {...register('dataAdmissao')}
+                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 text-slate-800 font-medium text-sm"
+              />
+              {errors.dataAdmissao && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.dataAdmissao.message}</span>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">Cargo / Função</label>
+              <input 
+                type="text" 
+                placeholder="EX: ASSESSOR DE GABINETE"
+                {...register('cargo')}
+                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm"
+              />
+              {errors.cargo && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.cargo.message}</span>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">Setor / Lotação</label>
+              <select 
+                {...register('lotacao')}
+                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 cursor-pointer text-slate-800 font-medium text-sm"
+              >
+                <option value="">-- Selecione o setor --</option>
+                {SETORES_SEPLAG.map((nomeDoSetor) => (
+                  <option key={nomeDoSetor} value={nomeDoSetor}>
+                    {nomeDoSetor}
+                  </option>
+                ))}
+              </select>
+              {errors.lotacao && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.lotacao.message}</span>}
+            </div>
           </div>
 
-          {/* Matrícula */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Matrícula</label>
-            <input 
-              type="text" 
-              placeholder="Ex: 123456-7"
-              {...register('matricula')}
-              className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200"
-            />
-            {errors.matricula && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.matricula.message}</span>}
-          </div>
-
-          {/* Data de Admissão */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Data de Admissão (Posse)</label>
-            <input 
-              type="date" 
-              {...register('dataAdmissao')}
-              className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200"
-            />
-            {errors.dataAdmissao && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.dataAdmissao.message}</span>}
-          </div>
-
-          {/* Cargo */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Cargo / Função</label>
-            <input 
-              type="text" 
-              placeholder="Ex: Assessor de Gabinete"
-              {...register('cargo')}
-              className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 uppercase"
-            />
-            {errors.cargo && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.cargo.message}</span>}
-          </div>
-
-          {/* Lotação */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Setor / Lotação</label>
-            <select 
-              {...register('lotacao')}
-              className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-gray-50 hover:bg-white outline-none transition-all duration-200 cursor-pointer"
-            >
-              <option value="">-- Selecione o setor --</option>
-              {SETORES_SEPLAG.map((nomeDoSetor) => (
-                <option key={nomeDoSetor} value={nomeDoSetor}>
-                  {nomeDoSetor}
-                </option>
-              ))}
-            </select>
-            {errors.lotacao && <span className="text-red-500 text-xs font-medium mt-1.5 block">{errors.lotacao.message}</span>}
-          </div>
-
-          {/* DIVISOR E BOTÃO DE SUBMIT (Ocupa as duas colunas) */}
-          <div className="md:col-span-2 mt-6 pt-6 border-t border-gray-100">
+          {/* BOTÃO ALINHADO À DIREITA */}
+          <div className="mt-8 pt-6 border-t border-slate-200/80 flex justify-end">
             <button 
               type="submit" 
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-4 px-4 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-blue-500/30 flex items-center justify-center gap-2 transform hover:-translate-y-0.5 outline-none focus:ring-4 focus:ring-blue-500/30"
+              className="w-full md:w-auto text-white font-black py-3.5 px-8 rounded-xl transition-all duration-200 shadow-md flex items-center justify-center gap-2 outline-none focus:ring-4 text-sm bg-[#005aa9] hover:bg-[#004785] focus:ring-[#005aa9]/30 transform hover:-translate-y-0.5"
             >
-              <Save size={20} />
-              Salvar Servidor
+              <Save size={18} />
+              Gravar Cadastro no Sistema
             </button>
           </div>
           
+        </form>
+
+        {/* ================= COLUNA DIREITA (DIRETRIZES DO RH) ================= */}
+        <div className="w-full xl:w-[380px] shrink-0">
+          <div className="sticky top-6 space-y-4">
+            
+            <div className="p-6 rounded-xl border bg-[#005aa9]/5 border-[#005aa9]/20 shadow-sm">
+              <h3 className="text-sm font-black flex items-center gap-2 mb-6 text-slate-800 border-b border-slate-200/80 pb-3">
+                <Info size={20} className="text-[#005aa9]" /> 
+                Diretrizes de Cadastro
+              </h3>
+              
+              <ul className="space-y-4 text-sm text-slate-600 font-medium">
+                <li className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#005aa9] mt-1.5 shrink-0"></div>
+                  <p>O <strong>1º Período Aquisitivo</strong> é gerado automaticamente pelo motor de regras utilizando a data de posse (admissão) informada.</p>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#005aa9] mt-1.5 shrink-0"></div>
+                  <p>A <strong>matrícula</strong> exige formato rígido (Ex: 184.351-6) para garantir a integridade na integração com o RH do Estado.</p>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#005aa9] mt-1.5 shrink-0"></div>
+                  <p>Mudanças de <strong>lotação</strong> ou de secretaria deverão ser reajustadas posteriormente pelo módulo de transferências.</p>
+                </li>
+              </ul>
+            </div>
+            
+          </div>
         </div>
-      </form>
+
+      </div>
     </div>
   );
 }

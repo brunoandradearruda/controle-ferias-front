@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, AlertTriangle, CalendarCheck, Building2, TrendingUp, X, ChevronRight } from 'lucide-react';
+import { Users, AlertTriangle, CalendarCheck, TrendingUp, X, CalendarClock, MousePointerClick } from 'lucide-react';
 import { api } from '../services/api';
 
 // Interface para estruturar os dados do Modal
@@ -7,7 +7,7 @@ interface ModalState {
   isOpen: boolean;
   titulo: string;
   icone: any;
-  corCorpo: string;
+  corHeader: string; 
   dados: any[];
 }
 
@@ -16,46 +16,62 @@ export function DashboardHome() {
     totalServidores: 0,
     ativos: 0,
     emRisco: 0,
-    emFerias: 0
+    emGozoAtual: 0,
+    agendadasFuturas: 0
   });
 
   const [dadosSetor, setDadosSetor] = useState<any[]>([]);
   const [dadosProjecao, setDadosProjecao] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // ---> NOVO: Guardamos a lista original do banco para usar no Modal
-  const [listaCompleta, setListaCompleta] = useState<any[]>([]);
+  // Listas reais armazenadas para o Drill-down (Modal)
+  const [listaEfetivo, setListaEfetivo] = useState<any[]>([]);
+  const [listaRisco, setListaRisco] = useState<any[]>([]);
+  const [listaGozo, setListaGozo] = useState<any[]>([]);
+  const [listaAgendadas, setListaAgendadas] = useState<any[]>([]);
 
-  // ---> NOVO: Estado que controla o Modal de Detalhamento
+  // Estado que controla o Modal de Detalhamento
   const [modal, setModal] = useState<ModalState>({
     isOpen: false,
     titulo: '',
     icone: null,
-    corCorpo: '',
+    corHeader: '',
     dados: []
   });
 
-  const CORES_SETOR = ['bg-indigo-600', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-violet-500', 'bg-rose-500'];
+  // Paleta de cores corporativa para os Setores
+  const CORES_SETOR = [
+    'bg-[#005aa9]',   // Azul PB
+    'bg-blue-400',    // Azul secundário
+    'bg-slate-600',   // Slate escuro
+    'bg-emerald-500', // Esmeralda
+    'bg-amber-500',   // Âmbar
+    'bg-slate-400'    // Slate claro
+  ];
 
   useEffect(() => {
     const carregarDadosReais = async () => {
       try {
         setLoading(true);
         
-        // Busca real no seu banco de dados via Spring Boot
-        const response = await api.get('/servidores').catch(() => ({ data: [] }));
-        const servidores = response.data || [];
-        
-        setListaCompleta(servidores); // Salva a lista para o Drill-down
+        // Chamada simultânea para as 3 fontes de dados do sistema
+        const [resServidores, resSolicitacoes, resAlertas] = await Promise.all([
+          api.get('/servidores').catch(() => ({ data: [] })),
+          api.get('/solicitacoes').catch(() => ({ data: [] })),
+          api.get('/alertas-risco').catch(() => ({ data: [] }))
+        ]);
 
-        // Lógica Estrita: Só calcula se existir servidor no banco
+        const servidores = resServidores.data || [];
+        const solicitacoes = resSolicitacoes.data || [];
+        const alertas = resAlertas.data || [];
+
+        // 1. DADOS DO EFETIVO E SETORES
         const total = servidores.length;
         const ativos = servidores.filter((s: any) => s.ativo).length;
         
-        // Agrupamento de servidores pelos Setores reais do banco
         const contagemSetor: Record<string, number> = {};
         servidores.forEach((s: any) => {
-          const setor = s.lotacao || 'Não Informado';
+          const setor = s.lotacao || 'Não Informada';
           contagemSetor[setor] = (contagemSetor[setor] || 0) + 1;
         });
 
@@ -66,28 +82,94 @@ export function DashboardHome() {
             percentual: total > 0 ? Math.round((contagemSetor[key] / total) * 100) : 0
           }))
           .sort((a, b) => b.value - a.value)
-          .slice(0, 5); // Mostra o Top 5 setores
+          .slice(0, 6);
+
+        // 2. MATEMÁTICA DE DATAS (GOZO ATUAL E AGENDADAS) E PROJEÇÃO INTERATIVA
+        const hojeDate = new Date();
+        const hojeStr = new Date(hojeDate.getTime() - (hojeDate.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+
+        const gozoArr: any[] = [];
+        const agendadasArr: any[] = [];
+        
+        // Array base para a projeção dos próximos 6 meses (Agora guardando a lista de servidores em cada mês)
+        const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const projecaoMap: Record<string, { count: number, listaServidores: any[] }> = {};
+        const chavesMeses: string[] = [];
+        
+        for(let i = 0; i < 6; i++) {
+          const m = new Date(hojeDate.getFullYear(), hojeDate.getMonth() + i, 1);
+          const chave = `${m.getFullYear()}-${m.getMonth()}`;
+          chavesMeses.push(chave);
+          projecaoMap[chave] = { count: 0, listaServidores: [] };
+        }
+
+        solicitacoes.forEach((sol: any) => {
+          if (sol.status === 'APROVADA' && sol.modalidade === 'GOZO') {
+            const inicio = sol.dataInicioGozo;
+            
+            // Calculando data Fim
+            const [a, m, d] = inicio.split('-').map(Number);
+            const fimDate = new Date(a, m - 1, d);
+            fimDate.setDate(fimDate.getDate() + sol.diasSolicitados - 1);
+            const fimStr = fimDate.toISOString().split('T')[0];
+
+            // Monta o objeto formatado para o modal
+            const objParaModal = {
+              ...sol,
+              nome: sol.servidorNome,
+              extraStr: `Início: ${inicio.split('-').reverse().join('/')}`,
+              corExtra: 'bg-[#005aa9]/10 text-[#005aa9]'
+            };
+
+            // Verificação de Status
+            if (inicio <= hojeStr && fimStr >= hojeStr) {
+              gozoArr.push({ ...sol, nome: sol.servidorNome, dataFimFormatada: fimDate.toLocaleDateString('pt-BR'), extraStr: `Até ${fimDate.toLocaleDateString('pt-BR')}`, corExtra: 'bg-emerald-100 text-emerald-700' });
+            } else if (inicio > hojeStr) {
+              agendadasArr.push(objParaModal);
+              
+              // Incrementa a Projeção se cair nos próximos 6 meses
+              const chaveAgendamento = `${a}-${m - 1}`;
+              if (projecaoMap[chaveAgendamento]) {
+                projecaoMap[chaveAgendamento].count++;
+                projecaoMap[chaveAgendamento].listaServidores.push(objParaModal);
+              }
+            }
+          }
+        });
+
+        // Formatando Projeção Visual Final
+        let maxAgendadas = 10;
+        Object.values(projecaoMap).forEach(val => { if (val.count > maxAgendadas) maxAgendadas = val.count; });
+        
+        const projecaoFinal = chavesMeses.map(chave => {
+          const [anoStr, mesStr] = chave.split('-');
+          return {
+            mes: `${mesesNomes[Number(mesStr)]}/${anoStr.substring(2)}`,
+            agendadas: projecaoMap[chave].count,
+            maximo: maxAgendadas + 5,
+            servidores: projecaoMap[chave].listaServidores
+          };
+        });
+
+        // 3. ATUALIZANDO OS ESTADOS
+        setListaEfetivo(servidores.map((s: any) => ({ ...s, extraStr: s.ativo ? 'Ativo' : 'Inativo', corExtra: s.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' })));
+        setListaRisco(alertas.map((a: any) => ({ ...a, nome: a.servidorNome, extraStr: a.nivelRisco, corExtra: a.nivelRisco === 'VERMELHO' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-300' })));
+        setListaGozo(gozoArr);
+        setListaAgendadas(agendadasArr);
 
         setDadosSetor(formatadoSetor);
+        setDadosProjecao(projecaoFinal);
+        
         setMetricas({
           totalServidores: total,
           ativos: ativos,
-          emRisco: total > 0 ? Math.floor(total * 0.15) : 0, 
-          emFerias: total > 0 ? Math.floor(total * 0.05) : 0
+          emRisco: alertas.length, 
+          emGozoAtual: gozoArr.length,
+          agendadasFuturas: agendadasArr.length
         });
 
-        // Projeção real zerada (será preenchida quando implementarmos a contagem de férias futuras)
-        const meses = ['Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-        const projecaoBase = meses.map(mes => ({
-          mes: mes,
-          agendadas: 0,
-          maximo: Math.max(10, total)
-        }));
-        
-        setDadosProjecao(projecaoBase);
-
       } catch (error) {
-        console.error('Erro ao conectar com a API:', error);
+        console.error('Erro ao processar dados do Dashboard:', error);
       } finally {
         setLoading(false);
       }
@@ -96,95 +178,80 @@ export function DashboardHome() {
     carregarDadosReais();
   }, []);
 
-  // ---> NOVO: Função que abre o Modal com a lista correspondente
-  const abrirDetalhes = (tipo: 'EFETIVO' | 'RISCO' | 'GOZO' | 'SETORES') => {
+  // Abre Modal Padronizado dos Cards Superiores
+  const abrirDetalhes = (tipo: 'EFETIVO' | 'RISCO' | 'GOZO' | 'AGENDADAS') => {
     switch (tipo) {
       case 'EFETIVO':
-        if (metricas.totalServidores === 0) return;
-        setModal({
-          isOpen: true,
-          titulo: 'Detalhamento do Efetivo Total',
-          icone: <Users size={24} className="text-indigo-600" />,
-          corCorpo: 'bg-indigo-50 text-indigo-900 border-indigo-200',
-          dados: listaCompleta // Mostra todos
-        });
+        if (listaEfetivo.length === 0) return;
+        setModal({ isOpen: true, titulo: 'Detalhamento do Efetivo Total', icone: <Users size={22} />, corHeader: 'bg-[#005aa9]', dados: listaEfetivo });
         break;
       case 'RISCO':
-        if (metricas.emRisco === 0) return;
-        setModal({
-          isOpen: true,
-          titulo: 'Servidores em Risco (Art. 79)',
-          icone: <AlertTriangle size={24} className="text-red-600" />,
-          corCorpo: 'bg-red-50 text-red-900 border-red-200',
-          // Como o número é mockado na matemática (15%), pegamos os primeiros da lista para simular
-          dados: listaCompleta.slice(0, metricas.emRisco) 
-        });
+        if (listaRisco.length === 0) return;
+        setModal({ isOpen: true, titulo: 'Servidores em Risco (Art. 79)', icone: <AlertTriangle size={22} />, corHeader: 'bg-red-600', dados: listaRisco });
         break;
       case 'GOZO':
-        if (metricas.emFerias === 0) return;
-        setModal({
-          isOpen: true,
-          titulo: 'Servidores Atualmente em Férias',
-          icone: <CalendarCheck size={24} className="text-emerald-600" />,
-          corCorpo: 'bg-emerald-50 text-emerald-900 border-emerald-200',
-          // Pega os próximos da lista para simular
-          dados: listaCompleta.slice(metricas.emRisco, metricas.emRisco + metricas.emFerias)
-        });
+        if (listaGozo.length === 0) return;
+        setModal({ isOpen: true, titulo: 'Servidores Atualmente em Férias', icone: <CalendarCheck size={22} />, corHeader: 'bg-emerald-600', dados: listaGozo });
         break;
-      case 'SETORES':
-        if (dadosSetor.length === 0) return;
-        setModal({
-          isOpen: true,
-          titulo: 'Distribuição Completa por Setor',
-          icone: <Building2 size={24} className="text-amber-600" />,
-          corCorpo: 'bg-amber-50 text-amber-900 border-amber-200',
-          // Ordena a lista de servidores alfabeticamente por setor para visualização
-          dados: [...listaCompleta].sort((a, b) => (a.lotacao || '').localeCompare(b.lotacao || ''))
-        });
+      case 'AGENDADAS':
+        if (listaAgendadas.length === 0) return;
+        setModal({ isOpen: true, titulo: 'Férias Futuras Agendadas', icone: <CalendarClock size={22} />, corHeader: 'bg-indigo-500', dados: listaAgendadas });
         break;
     }
+  };
+
+  // Abre Modal Específico do Gráfico de Projeção
+  const abrirDetalhesProjecaoMes = (mes: string, servidoresDoMes: any[]) => {
+    if (servidoresDoMes.length === 0) return;
+    setModal({ 
+      isOpen: true, 
+      titulo: `Férias Agendadas para ${mes}`, 
+      icone: <CalendarClock size={22} />, 
+      corHeader: 'bg-indigo-500', 
+      dados: servidoresDoMes 
+    });
   };
 
   const fecharModal = () => setModal({ ...modal, isOpen: false });
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-10 flex-col gap-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-indigo-600"></div>
-        <p className="text-slate-500 font-medium">Sincronizando com o banco de dados...</p>
+      <div className="flex h-full items-center justify-center py-32 flex-col gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-[#005aa9]"></div>
+        <p className="text-slate-500 font-medium">Analisando histórico e calculando projeções da secretaria...</p>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto animate-in fade-in duration-500">
+    <div className="w-full pb-8">
       
       <div className="mb-8">
         <h1 className="text-3xl font-black text-slate-800 tracking-tight">Visão Executiva</h1>
-        <p className="text-slate-500 font-medium mt-1">Acompanhamento estatístico e gerencial de pessoal</p>
+        <p className="text-slate-500 font-medium mt-1">Acompanhamento estatístico e panorama geral de férias</p>
       </div>
 
-      {/* ================= CARDS SUPERIORES (AGORA INTERATIVOS) ================= */}
+      {/* ================= CARDS SUPERIORES ================= */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         
-        {/* CARD EFETIVO */}
+        {/* EFETIVO */}
         <div 
           onClick={() => abrirDetalhes('EFETIVO')}
-          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.totalServidores > 0 ? 'hover:shadow-md hover:border-indigo-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
+          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.totalServidores > 0 ? 'hover:shadow-md hover:border-[#005aa9]/30 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
         >
-          <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+          <div className="p-3 bg-[#005aa9]/10 rounded-xl text-[#005aa9] group-hover:bg-[#005aa9] group-hover:text-white transition-colors">
             <Users size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Efetivo Total</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-1">{metricas.totalServidores}</h3>
-            <p className="text-xs font-semibold text-emerald-500 mt-1 flex items-center gap-1">
-              <TrendingUp size={12} /> {metricas.ativos} ativos
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Efetivo Total</p>
+            <h3 className="text-3xl font-black text-slate-800 mt-1 leading-none">{metricas.totalServidores}</h3>
+            <p className="text-xs font-bold text-emerald-600 mt-2 flex items-center gap-1">
+              <TrendingUp size={14} /> {metricas.ativos} ativos
             </p>
           </div>
         </div>
 
-        {/* CARD RISCO */}
+        {/* RISCO */}
         <div 
           onClick={() => abrirDetalhes('RISCO')}
           className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.emRisco > 0 ? 'hover:shadow-md hover:border-red-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
@@ -193,83 +260,94 @@ export function DashboardHome() {
             <AlertTriangle size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Risco (Art. 79)</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-1">{metricas.emRisco}</h3>
-            <p className={`text-xs font-semibold mt-1 ${metricas.emRisco > 0 ? 'text-red-500' : 'text-slate-400'}`}>Prazo fatal iminente</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Risco (Art. 79)</p>
+            <h3 className="text-3xl font-black text-slate-800 mt-1 leading-none">{metricas.emRisco}</h3>
+            <p className={`text-xs font-bold mt-2 ${metricas.emRisco > 0 ? 'text-red-500' : 'text-slate-400'}`}>Atenção recomendada</p>
           </div>
         </div>
 
-        {/* CARD GOZO */}
+        {/* EM GOZO ATUAL */}
         <div 
           onClick={() => abrirDetalhes('GOZO')}
-          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.emFerias > 0 ? 'hover:shadow-md hover:border-emerald-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
+          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.emGozoAtual > 0 ? 'hover:shadow-md hover:border-emerald-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
         >
           <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
             <CalendarCheck size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Em Gozo Atual</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-1">{metricas.emFerias}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-1">Afastados no momento</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Em Gozo Atual</p>
+            <h3 className="text-3xl font-black text-slate-800 mt-1 leading-none">{metricas.emGozoAtual}</h3>
+            <p className="text-xs font-bold text-slate-500 mt-2">Férias ativas hoje</p>
           </div>
         </div>
 
-        {/* CARD SETORES */}
+        {/* AGENDADAS GERAIS */}
         <div 
-          onClick={() => abrirDetalhes('SETORES')}
-          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${dadosSetor.length > 0 ? 'hover:shadow-md hover:border-amber-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
+          onClick={() => abrirDetalhes('AGENDADAS')}
+          className={`bg-white rounded-2xl p-6 border shadow-sm flex items-start gap-4 transition-all duration-200 ${metricas.agendadasFuturas > 0 ? 'hover:shadow-md hover:border-indigo-300 hover:scale-[1.02] cursor-pointer border-slate-200 group' : 'border-slate-200 opacity-80 cursor-default'}`}
         >
-          <div className="p-3 bg-amber-50 rounded-xl text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-            <Building2 size={24} />
+          <div className="p-3 bg-indigo-50 rounded-xl text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
+            <CalendarClock size={24} />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Setores</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-1">{dadosSetor.length}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-1">Setores internos</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Férias Futuras</p>
+            <h3 className="text-3xl font-black text-slate-800 mt-1 leading-none">{metricas.agendadasFuturas}</h3>
+            <p className="text-xs font-bold text-slate-500 mt-2">Todos os períodos</p>
           </div>
         </div>
 
       </div>
 
       {/* ================= ÁREA DOS GRÁFICOS ================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Projeção de Férias Agendadas</h3>
-          <div className="space-y-4">
+        {/* GRÁFICO PROJEÇÃO DOS PRÓXIMOS 6 MESES COM CLIQUE */}
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm xl:col-span-2">
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-lg font-black text-slate-800">Projeção de Saídas (Próximos 6 meses)</h3>
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5"><MousePointerClick size={14}/> Clique na barra para detalhar</span>
+          </div>
+          <div className="space-y-3">
             {dadosProjecao.map((dado, index) => {
               const largura = Math.round((dado.agendadas / dado.maximo) * 100);
+              const temGente = dado.agendadas > 0;
+              
               return (
-                <div key={index} className="flex items-center gap-4">
-                  <span className="w-24 text-sm font-semibold text-slate-600 text-right">{dado.mes}</span>
-                  <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden flex items-center">
+                <div 
+                  key={index} 
+                  onClick={() => abrirDetalhesProjecaoMes(dado.mes, dado.servidores)}
+                  className={`flex items-center gap-4 py-2 px-3 rounded-xl transition-all duration-200 ${temGente ? 'cursor-pointer hover:bg-slate-50 border border-transparent hover:border-slate-200 group' : 'opacity-80 border border-transparent'}`}
+                >
+                  <span className="w-20 text-sm font-bold text-slate-500 text-right group-hover:text-slate-800">{dado.mes}</span>
+                  <div className="flex-1 h-7 bg-slate-100 rounded-full overflow-hidden flex items-center">
                     <div 
-                      className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out flex items-center justify-end px-3"
+                      className={`h-full rounded-full transition-all duration-1000 ease-out flex items-center justify-end px-3 ${temGente ? 'bg-[#005aa9] group-hover:bg-[#004785]' : 'bg-slate-200'}`}
                       style={{ width: `${largura}%` }}
                     >
                       {largura > 10 && <span className="text-white text-xs font-bold">{dado.agendadas}</span>}
                     </div>
                   </div>
-                  <span className="w-8 text-sm font-bold text-slate-800">{dado.agendadas}</span>
+                  <span className={`w-8 text-sm font-black ${temGente ? 'text-slate-800' : 'text-slate-300'}`}>{dado.agendadas}</span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Distribuição por Setor</h3>
-          <div className="space-y-5">
+        {/* GRÁFICO SETORES */}
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="text-lg font-black text-slate-800 mb-8">Distribuição por Setor</h3>
+          <div className="space-y-6">
             {dadosSetor.length > 0 ? (
               dadosSetor.map((lot, idx) => (
                 <div key={idx}>
-                  <div className="flex justify-between items-end mb-1">
-                    <span className="text-sm font-semibold text-slate-600 truncate pr-2" title={lot.name}>
+                  <div className="flex justify-between items-end mb-2">
+                    <span className="text-sm font-bold text-slate-600 truncate pr-2" title={lot.name}>
                       {lot.name}
                     </span>
-                    <span className="text-sm font-bold text-slate-800">{lot.value} ({lot.percentual}%)</span>
+                    <span className="text-sm font-black text-slate-800">{lot.value} <span className="text-slate-400 font-medium ml-1">({lot.percentual}%)</span></span>
                   </div>
-                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div 
                       className={`h-full rounded-full transition-all duration-1000 ${CORES_SETOR[idx % CORES_SETOR.length]}`}
                       style={{ width: `${lot.percentual}%` }}
@@ -290,45 +368,43 @@ export function DashboardHome() {
 
       {/* ================= MODAL DE DETALHAMENTO ================= */}
       {modal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200">
             
-            {/* Header do Modal */}
-            <div className={`px-6 py-5 flex items-center justify-between border-b ${modal.corCorpo}`}>
-              <div className="flex items-center gap-3">
-                <div className="bg-white p-2 rounded-lg shadow-sm">
-                  {modal.icone}
-                </div>
-                <h2 className="text-xl font-black">{modal.titulo}</h2>
-              </div>
+            {/* Header do Modal Padronizado */}
+            <div className={`px-6 py-5 flex items-center justify-between text-white ${modal.corHeader}`}>
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                {modal.icone}
+                {modal.titulo}
+              </h3>
               <button 
                 onClick={fecharModal}
-                className="p-2 rounded-xl hover:bg-black/10 transition-colors"
+                className="text-white/80 hover:text-white hover:bg-white/20 p-1.5 rounded-lg transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            {/* Tabela de Dados reais do Spring Boot */}
+            {/* Tabela de Dados */}
             <div className="p-6 max-h-[60vh] overflow-y-auto">
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b-2 border-slate-100">
-                    <th className="py-3 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Matrícula</th>
-                    <th className="py-3 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Servidor</th>
-                    <th className="py-3 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Lotação</th>
-                    <th className="py-3 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr className="border-b border-slate-200">
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Matrícula</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Servidor</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lotação</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Situação / Período</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {modal.dados.map((servidor) => (
-                    <tr key={servidor.id} className="hover:bg-slate-50 transition-colors group">
-                      <td className="py-4 px-4 text-sm font-medium text-slate-500">{servidor.matricula || '-'}</td>
-                      <td className="py-4 px-4 text-sm font-bold text-slate-800">{servidor.nome}</td>
-                      <td className="py-4 px-4 text-sm font-medium text-slate-600">{servidor.lotacao || 'Não informada'}</td>
-                      <td className="py-4 px-4">
-                        <span className={`px-2 py-1 text-xs font-bold rounded-md ${servidor.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                          {servidor.ativo ? 'Ativo' : 'Inativo'}
+                  {modal.dados.map((linha, index) => (
+                    <tr key={index} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-4 px-4 text-sm font-mono font-bold text-slate-400">{linha.matricula || '-'}</td>
+                      <td className="py-4 px-4 text-sm font-bold text-slate-800">{linha.nome}</td>
+                      <td className="py-4 px-4 text-sm font-medium text-slate-600">{linha.lotacao || 'Não informada'}</td>
+                      <td className="py-4 px-4 text-center">
+                        <span className={`px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-lg border shadow-sm ${linha.corExtra}`}>
+                          {linha.extraStr}
                         </span>
                       </td>
                     </tr>
@@ -337,10 +413,10 @@ export function DashboardHome() {
               </table>
             </div>
 
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end">
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200/60 flex justify-end">
               <button 
                 onClick={fecharModal}
-                className="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-slate-900 transition-colors"
+                className="bg-slate-100 text-slate-600 border border-slate-300 px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors shadow-sm"
               >
                 Fechar Painel
               </button>
