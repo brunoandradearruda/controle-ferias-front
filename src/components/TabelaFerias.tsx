@@ -20,12 +20,22 @@ interface Solicitacao {
   numeroPbdoc: string;
   lotacao: string;
   matricula: string;
-  anoReferencia: number;
+  // Campos opcionais mapeando todas as formas que o backend pode devolver o período
+  anoReferencia?: number;
+  referencia?: string;
+  periodo?: {
+    anoReferencia?: number;
+    referencia?: string;
+  };
+  periodoAquisitivo?: {
+    anoReferencia?: number;
+    referencia?: string;
+  };
 }
 
 // Interfaces auxiliares para a nova estrutura de agrupamento
 interface GrupoPeriodo {
-  anoReferencia: number;
+  textoReferencia: string; 
   totalDiasGozados: number;
   solicitacoes: Solicitacao[];
 }
@@ -33,8 +43,16 @@ interface GrupoPeriodo {
 interface GrupoServidor {
   servidorNome: string;
   matricula: string;
-  periodos: Record<number, GrupoPeriodo>;
+  periodos: Record<string, GrupoPeriodo>; 
 }
+
+// O extrator agora sabe que o Java envia exatamente "anoReferencia"
+const getReferenciaFormatada = (item: any) => {
+  if (item.anoReferencia) {
+    return `${item.anoReferencia - 1}/${item.anoReferencia}`;
+  }
+  return 'N/A'; // Só vai cair aqui se o banco de dados devolver null
+};
 
 export function TabelaFerias() {
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
@@ -57,6 +75,7 @@ export function TabelaFerias() {
     try {
       setCarregando(true);
       const response = await api.get('/solicitacoes'); 
+      console.log("🕵️ DADOS VINDOS DO JAVA:", response.data[0]);
       setSolicitacoes(response.data);
     } catch (error) {
       console.error("Erro ao buscar histórico:", error);
@@ -215,7 +234,7 @@ export function TabelaFerias() {
     lista.forEach(item => {
       const setor = item.lotacao || 'Sem Lotação Informada';
       const chaveServidor = item.matricula || item.servidorNome;
-      const ref = item.anoReferencia || 0;
+      const textoRef = getReferenciaFormatada(item);
 
       if (!setores[setor]) setores[setor] = {};
       if (!setores[setor][chaveServidor]) {
@@ -226,18 +245,18 @@ export function TabelaFerias() {
         };
       }
 
-      if (!setores[setor][chaveServidor].periodos[ref]) {
-        setores[setor][chaveServidor].periodos[ref] = {
-          anoReferencia: ref,
+      if (!setores[setor][chaveServidor].periodos[textoRef]) {
+        setores[setor][chaveServidor].periodos[textoRef] = {
+          textoReferencia: textoRef,
           totalDiasGozados: 0,
           solicitacoes: []
         };
       }
 
-      setores[setor][chaveServidor].periodos[ref].solicitacoes.push(item);
+      setores[setor][chaveServidor].periodos[textoRef].solicitacoes.push(item);
       
       if (item.status === 'APROVADA' || item.status === 'INTERROMPIDA') {
-        setores[setor][chaveServidor].periodos[ref].totalDiasGozados += item.diasSolicitados;
+        setores[setor][chaveServidor].periodos[textoRef].totalDiasGozados += item.diasSolicitados;
       }
     });
 
@@ -282,9 +301,8 @@ export function TabelaFerias() {
         currentY += 4;
 
         Object.values(srv.periodos).forEach(p => {
-          const textoCiclo = p.anoReferencia ? `${p.anoReferencia - 1}/${p.anoReferencia}` : 'N/A';
           doc.setFontSize(9).setFont("helvetica", "bold").setTextColor(100);
-          doc.text(`  • Período de Referência: ${textoCiclo} | Total Consumido: ${p.totalDiasGozados} dias`, 18, currentY);
+          doc.text(`  • Período de Referência: ${p.textoReferencia} | Total Consumido: ${p.totalDiasGozados} dias`, 18, currentY);
           currentY += 3;
 
           const colunas = ["Modalidade", "Início", "Fim", "Retorno", "Dias", "Processo", "Status"];
@@ -365,7 +383,7 @@ export function TabelaFerias() {
                   <div className="text-sm font-black text-slate-700">{item.diasSolicitados} dias</div>
                   {!ocultarSetorInfo && (
                     <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#005aa9]/10 text-[#005aa9] border border-[#005aa9]/20">
-                      Ref: {item.anoReferencia ? `${item.anoReferencia - 1}/${item.anoReferencia}` : 'N/A'}
+                      Ref: {getReferenciaFormatada(item)}
                     </div>
                   )}
                 </td>
@@ -568,16 +586,14 @@ export function TabelaFerias() {
                                 {/* NÍVEL 3: Períodos */}
                                 {isServidorAberto && (
                                   <div className="p-4 bg-slate-50/50 border-t border-slate-100 space-y-4">
-                                    {Object.values(srv.periodos).map((per) => {
-                                      const textoCiclo = per.anoReferencia ? `${per.anoReferencia - 1}/${per.anoReferencia}` : 'N/A';
-                                      
+                                    {Object.values(srv.periodos).map((per, idx) => {
                                       return (
-                                        <div key={per.anoReferencia} className="bg-white border border-slate-200/80 rounded-xl shadow-xs overflow-hidden">
+                                        <div key={idx} className="bg-white border border-slate-200/80 rounded-xl shadow-xs overflow-hidden">
                                           
                                           <div className="bg-slate-100/60 px-4 py-2.5 flex justify-between items-center border-b border-slate-200/80">
                                             <div className="flex items-center gap-2">
                                               <Layers size={14} className="text-[#005aa9]" />
-                                              <span className="text-xs font-black text-slate-700">Período de Referência: <strong className="text-[#005aa9]">{textoCiclo}</strong></span>
+                                              <span className="text-xs font-black text-slate-700">Período de Referência: <strong className="text-[#005aa9]">{per.textoReferencia}</strong></span>
                                             </div>
                                             <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full shadow-xs">
                                               Total Usufruído/Indenizado: {per.totalDiasGozados} dias

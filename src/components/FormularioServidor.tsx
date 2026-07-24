@@ -50,7 +50,8 @@ const SETORES_SEPLAG = [
 type ServidorData = z.infer<typeof servidorSchema>;
 
 export function FormularioServidor() {
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<ServidorData>({
+  // Adicionamos o setError aqui para podermos pintar o campo de vermelho em caso de falha
+  const { register, handleSubmit, formState: { errors }, reset, setError } = useForm<ServidorData>({
     resolver: zodResolver(servidorSchema),
   });
 
@@ -64,8 +65,20 @@ export function FormularioServidor() {
       
       toast.success('Servidor cadastrado com sucesso!', { id: toastId });
       reset();
-    } catch (error) {
-      toast.error('Erro ao cadastrar o servidor no banco de dados.', { id: toastId });
+    } catch (error: any) {
+      // 1. Extrai a mensagem exata que enviamos do Spring Boot
+      const mensagemErro = error.response?.data?.message || 'Erro inesperado ao conectar com o servidor.';
+      
+      // 2. Exibe o balão vermelho com o texto completo
+      toast.error(mensagemErro, { id: toastId, duration: 5000 });
+      
+      // 3. Se o erro for sobre a matrícula, pinta o input de matrícula de vermelho automaticamente
+      if (mensagemErro.toLowerCase().includes('matrícula')) {
+        setError('matricula', { 
+          type: 'manual', 
+          message: 'Esta matrícula já pertence a outro servidor.' 
+        });
+      }
     }
   };
 
@@ -96,7 +109,7 @@ export function FormularioServidor() {
                 type="text" 
                 placeholder="Ex: BRUNO ANDRADE DE ARRUDA"
                 {...register('nome')}
-                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm"
+                className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm ${errors.nome ? 'border-red-400 focus:ring-red-400/20 bg-red-50' : 'border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white'}`}
               />
               {errors.nome && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.nome.message}</span>}
             </div>
@@ -107,12 +120,11 @@ export function FormularioServidor() {
                 type="text" 
                 placeholder="Ex: 184.351-6"
                 {...register('matricula', {
-                  // Intercepta a digitação em tempo real e aplica a nossa máscara
                   onChange: (e) => {
                     e.target.value = mascaraMatricula(e.target.value);
                   }
                 })}
-                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 text-slate-800 font-medium text-sm"
+                className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 text-slate-800 font-medium text-sm ${errors.matricula ? 'border-red-400 focus:ring-red-400/20 bg-red-50' : 'border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white'}`}
               />
               {errors.matricula && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.matricula.message}</span>}
             </div>
@@ -122,7 +134,7 @@ export function FormularioServidor() {
               <input 
                 type="date" 
                 {...register('dataAdmissao')}
-                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 text-slate-800 font-medium text-sm"
+                className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 text-slate-800 font-medium text-sm ${errors.dataAdmissao ? 'border-red-400 focus:ring-red-400/20 bg-red-50' : 'border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white'}`}
               />
               {errors.dataAdmissao && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.dataAdmissao.message}</span>}
             </div>
@@ -133,7 +145,7 @@ export function FormularioServidor() {
                 type="text" 
                 placeholder="EX: ASSESSOR DE GABINETE"
                 {...register('cargo')}
-                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm"
+                className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 uppercase text-slate-800 font-medium text-sm ${errors.cargo ? 'border-red-400 focus:ring-red-400/20 bg-red-50' : 'border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white'}`}
               />
               {errors.cargo && <span className="text-red-500 text-xs font-bold mt-1.5 block">{errors.cargo.message}</span>}
             </div>
@@ -142,7 +154,7 @@ export function FormularioServidor() {
               <label className="block text-sm font-bold text-slate-700 mb-1.5">Setor / Lotação</label>
               <select 
                 {...register('lotacao')}
-                className="w-full border border-slate-300 rounded-lg py-2.5 px-3 focus:ring-4 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white outline-none transition-all duration-200 cursor-pointer text-slate-800 font-medium text-sm"
+                className={`w-full border rounded-lg py-2.5 px-3 focus:ring-4 outline-none transition-all duration-200 cursor-pointer text-slate-800 font-medium text-sm ${errors.lotacao ? 'border-red-400 focus:ring-red-400/20 bg-red-50' : 'border-slate-300 focus:ring-[#005aa9]/20 focus:border-[#005aa9] bg-slate-50 hover:bg-white'}`}
               >
                 <option value="">-- Selecione o setor --</option>
                 {SETORES_SEPLAG.map((nomeDoSetor) => (
